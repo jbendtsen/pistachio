@@ -9,15 +9,11 @@
 #define FONT_WIDTH(glyphs) (int)(glyphs[0].box_w + 0.5)
 #define FONT_HEIGHT(glyphs) (int)(glyphs[0].box_h + 0.5)
 
-#define LERP_ARGB(fore, back, lum) \
-	((u32)(fore->a + (back->a - fore->a) * lum) << 24) | \
-	((u32)(fore->r + (back->r - fore->r) * lum) << 16) | \
-	((u32)(fore->g + (back->g - fore->g) * lum) << 8) | \
-	(u32)(fore->b + (back->b - fore->b) * lum)
-
 #define MIN_CHAR ' '
 #define MAX_CHAR '~'
 #define N_CHARS  (MAX_CHAR - MIN_CHAR + 1)
+
+#define BINARIES_DIR  "/usr/bin"
 
 #define STATUS_EXIT     0
 #define STATUS_COMMAND  1
@@ -34,8 +30,8 @@ typedef struct {
 	float frac_w;
 	float frac_h;
 	char *font_name;
-	int search_font_size;
-	int results_font_size;
+	float search_font_size;
+	float results_font_size;
 	u32 foreground;
 	u32 background;
 	u32 caret;
@@ -73,8 +69,12 @@ void make_argb(u32 color, ARGB *argb);
 void remove_char(char *str, int len, int pos);
 int insert_chars(char *str, int len, char *insert, int insert_len, int pos);
 int insert_substring(char *str, int len, char *insert, int insert_len, int pos);
+int remove_backslashes(char *str, int span);
+int escape_spaces(char *str, int span);
+bool difference_ignoring_backslashes(char *str, char *word, int word_len, int trailing);
 bool enumerate_directory(char *textbox, int cursor, char **word, int *word_length, int *search_length, char **result, int *n_entries);
-int auto_complete(char *word, int *word_length, int max_len, char *results, int n_results, int trailing);
+char *find_completeable_span(char *word, int word_len, char *results, int n_results, int trailing, int *match_length);
+int complete(char *word, int *word_length, char *match, int match_len, int trailing);
 
 // dir.c
 char *list_directory(char *directory, int *n_entries);
@@ -86,7 +86,7 @@ bool is_file(char *str, int len);
 char *get_font_path(char *name);
 int glyph_indexof(char c);
 bool open_font(char *font_path);
-bool render_font(Screen_Info *info, int font_size, ARGB *fore, ARGB *back, Glyph *chars);
+bool render_font(Screen_Info *info, float font_size, ARGB *fore, ARGB *back, Glyph *chars);
 void close_font();
 
 // gui.c

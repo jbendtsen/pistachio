@@ -113,6 +113,8 @@ int stat_ex(char *str, int len, struct stat *s) {
 		strcpy(path, home);
 
 	strcpy(&path[home_len], &str[offset]);
+	remove_backslashes(path, -1);
+
 	return stat(path, s);
 }
 

@@ -82,7 +82,7 @@ bool open_font(char *font_path) {
 	return true;
 }
 
-bool render_font(Screen_Info *info, int font_size, ARGB *fore, ARGB *back, Glyph *chars) {
+bool render_font(Screen_Info *info, float font_size, ARGB *fore, ARGB *back, Glyph *chars) {
 	FT_Set_Char_Size(face, 0, font_size * 64, info->dpi_w, info->dpi_h);
 
 	for (int c = MIN_CHAR; c <= MAX_CHAR; c++) {
@@ -113,7 +113,11 @@ bool render_font(Screen_Info *info, int font_size, ARGB *fore, ARGB *back, Glyph
 		u32 *p = (u32*)gl->data;
 		for (int i = 0; i < gl->img_w * gl->img_h; i++) {
 			float lum = (float)bmp->buffer[i] / 255.0;
-			p[i] = LERP_ARGB(back, fore, lum);
+			p[i] =
+				((u32)(back->a + (fore->a - back->a) * lum) << 24) |
+				((u32)(back->r + (fore->r - back->r) * lum) << 16) |
+				((u32)(back->g + (fore->g - back->g) * lum) << 8) |
+				(u32)(back->b + (fore->b - back->b) * lum);
 		}
 	}
 

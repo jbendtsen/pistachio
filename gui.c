@@ -3,7 +3,7 @@
 
 #include "pistachio.h"
 
-#define WINDOW_TITLE "Launcher"
+#define WINDOW_TITLE "Pistachio"
 
 #define ABOVE_CURSOR_RATIO  9/10
 #define BELOW_CURSOR_RATIO  2/10
@@ -68,7 +68,7 @@ void make_glyph_ximages(Visual *visual, Glyph *glyphs, XImage *images) {
 	}
 }
 
-Window create_window(GUI_Settings *settings, Screen_Info *screen_info, char *title, Draw_Info *draw_info) {
+Window create_window(GUI_Settings *settings, Screen_Info *screen_info, Draw_Info *draw_info) {
 	XVisualInfo info;
 	XMatchVisualInfo(display, screen_info->idx, 32, TrueColor, &info);
 
@@ -88,15 +88,12 @@ Window create_window(GUI_Settings *settings, Screen_Info *screen_info, char *tit
 	draw_info->window_w = w;
 	draw_info->window_h = h;
 
-	Window window = XCreateWindow(
-		display, DefaultRootWindow(display),
+	return XCreateWindow(
+		display, RootWindow(display, screen_info->idx),
 		x, y, w, h,
 		0, info.depth, InputOutput, info.visual,
 		CWColormap | CWBorderPixel | CWBackPixel, &attr
 	);
-
-	XStoreName(display, window, title);
-	return window;
 }
 
 void remove_window_border(Display *dpy, Window window) {
@@ -110,11 +107,37 @@ void remove_window_border(Display *dpy, Window window) {
 		.flags = (1L << 1), // decorations hint flag
 		.decorations = 0
 	};
-	Atom hint_msg = XInternAtom(display, "_MOTIF_WM_HINTS", 0);
+	Atom hint_msg = XInternAtom(display, "_MOTIF_WM_HINTS", false);
 	XChangeProperty(display, window, hint_msg, hint_msg, 32, PropModeReplace, (u8*)&hints, 5);
 }
 
+// Note: this function must be called AFTER XMapRaised()
+void skip_taskbar(Display *dpy, Window window, Window root) {
+	XClientMessageEvent xclient = {
+		.type = ClientMessage,
+		.window = window,
+		.message_type = XInternAtom(display, "_NET_WM_STATE", false),
+		.format = 32,
+		.data.l[0] = 1, // Add/set property
+		.data.l[1] = XInternAtom(display, "_NET_WM_STATE_SKIP_TASKBAR", false),
+		.data.l[2] = 0,
+		.data.l[3] = 1,
+		.data.l[4] = 0
+	};
+
+	XSendEvent(
+		dpy,
+		root,
+		false,
+		SubstructureRedirectMask | SubstructureNotifyMask,
+		(XEvent*)&xclient
+	);
+}
+
 void draw_string(char *text, int length, int *cursor, int x, int y, Window window, GC gc, Glyph *glyphs, XImage *chars) {
+	if (length < 1)
+		length = strlen(text);
+
 	int caret_y1 = y - FONT_HEIGHT(glyphs) * ABOVE_CURSOR_RATIO;
 	int caret_y2 = y + FONT_HEIGHT(glyphs) * BELOW_CURSOR_RATIO;
 
@@ -170,11 +193,12 @@ void draw_menu(Menu_View *view, GUI_Settings *settings, Font_Renders *renders, D
 
 int run_gui(GUI_Settings *settings, Screen_Info *screen_info, Font_Renders *renders, char *textbox, int textbox_len) {
 	Draw_Info info;
-	Window window = create_window(settings, screen_info, WINDOW_TITLE, &info);
+	Window window = create_window(settings, screen_info, &info);
 
+	XStoreName(display, window, WINDOW_TITLE);
 	remove_window_border(display, window);
 
-	XSelectInput(display, window, ExposureMask | FocusChangeMask | ButtonPressMask | KeyPressMask);
+	XSelectInput(display, window, ExposureMask | FocusChangeMask | KeyPressMask);
 	GC gc = XCreateGC(display, window, 0, NULL);
 
 	XSetForeground(display, gc, settings->caret);
@@ -188,6 +212,8 @@ int run_gui(GUI_Settings *settings, Screen_Info *screen_info, Font_Renders *rend
 	XSetWMProtocols(display, window, &delete_msg, 1);
 
 	XMapRaised(display, window);
+
+	skip_taskbar(display, window, RootWindow(display, screen_info->idx));
 
 	int cursor = 0;
 
@@ -217,7 +243,14 @@ int run_gui(GUI_Settings *settings, Screen_Info *screen_info, Font_Renders *rend
 				XDrawLine(display, window, gc, x, caret_y1, x, caret_y2);
 				break;
 			}
-			case ButtonPress:
+			case FocusOut:
+				if (event.xfocus.mode != NotifyUngrab)
+					done = true;
+				break;
+
+			case ClientMessage:
+				if (event.xclient.data.l[0] == delete_msg)
+					done = true;
 				break;
 
 			case KeyPress:
@@ -303,17 +336,19 @@ int run_gui(GUI_Settings *settings, Screen_Info *screen_info, Font_Renders *rend
 				int word_len = 0;
 				bool is_command = enumerate_directory(textbox, cursor, &word, &word_len, &trailing, &results, &n_results);
 
-				if (key == XK_Tab && view.selected < 0) {
-					trailing = auto_complete(word, &word_len, word - textbox + textbox_len, results, n_results, trailing);
-					if (!trailing)
-						enumerate_directory(textbox, cursor, &word, &word_len, NULL, &results, &n_results);
+				char *match = NULL;
+				int match_len = 0;
 
-					cursor = word - textbox + word_len;
+				if (key == XK_Tab && view.selected < 0) {
+					match = find_completeable_span(word, word_len, results, n_results, trailing, &match_len);
+				}
+				else if (view.selected >= 0 && (key == XK_Tab || key == XK_Right || key == XK_Return)) {
+					match = menu[view.selected];
+					match_len = strlen(match);
 				}
 
-				if (view.selected >= 0 && (key == XK_Tab || key == XK_Right || key == XK_Return)) {
-					char *buf = &menu[view.selected][trailing];
-					word_len += insert_substring(word, len - (textbox - word), buf, strlen(buf), word_len);
+				if (match) {
+					trailing = complete(word, &word_len, match, match_len, trailing);
 
 					if (key == XK_Return) {
 						done = true;
@@ -321,13 +356,8 @@ int run_gui(GUI_Settings *settings, Screen_Info *screen_info, Font_Renders *rend
 						break;
 					}
 
-					if (is_dir(word, word_len)) {
-						trailing = 0;
-						if (word[word_len-1] != '/')
-							insert_substring(word, strlen(word), "/", 1, word_len);
-
+					if (!trailing)
 						enumerate_directory(textbox, cursor, &word, &word_len, NULL, &results, &n_results);
-					}
 
 					cursor = &word[word_len] - textbox;
 					view.selected = -1;
@@ -339,7 +369,7 @@ int run_gui(GUI_Settings *settings, Screen_Info *screen_info, Font_Renders *rend
 				if (show_menu) {
 					char *str = results;
 					for (int i = 0; i < n_results && view.n_items < MENU_SIZE; i++, str += strlen(str) + 1) {
-						if (!trailing || !strncmp(str, &word[word_len - trailing], trailing))
+						if (!difference_ignoring_backslashes(str, word, word_len, trailing))
 							view.menu[view.n_items++] = str;
 					}
 				}
@@ -349,23 +379,13 @@ int run_gui(GUI_Settings *settings, Screen_Info *screen_info, Font_Renders *rend
 				int search_font_h = FONT_HEIGHT(renders->search_glyphs);
 				int gap = search_font_h * VERT_GAP_RATIO;
 
-				len = strlen(textbox);
-				draw_string(textbox, len, &cursor, BORDER_PX, gap, window, gc, renders->search_glyphs, search_chars);
+				draw_string(textbox, -1, &cursor, BORDER_PX, gap, window, gc, renders->search_glyphs, search_chars);
 
 				if (show_menu)
 					draw_menu(&view, settings, renders, &info, window, gc, gap * 2);
 
 				break;
 			}
-			case FocusOut:
-				if (event.xfocus.mode != NotifyUngrab)
-					done = true;
-				break;
-
-			case ClientMessage:
-				if (event.xclient.data.l[0] == delete_msg)
-					done = true;
-				break;
 		}
 	}
 

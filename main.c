@@ -4,12 +4,12 @@
 
 #define SCREEN        0
 #define FONT_NAME     "monospace"
-#define SEARCH_SIZE   16
-#define RESULTS_SIZE  12
+#define SEARCH_SIZE   16.0
+#define RESULTS_SIZE  12.0
 #define FOREGROUND    0xfff8f8f8
 #define BACKGROUND    0xe8303030
 #define CARET         0xffe0e0e0
-#define SELECTED      0xf0508040
+#define SELECTED      0xf0608040
 #define WINDOW_WIDTH  0.4
 #define WINDOW_HEIGHT 0.3
 

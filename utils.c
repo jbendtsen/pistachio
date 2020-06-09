@@ -15,6 +15,9 @@ void remove_char(char *str, int len, int pos) {
 }
 
 int insert_substring(char *str, int len, char *insert, int insert_len, int pos) {
+	if (len < 0)
+		len = strlen(str);
+
 	if (pos < 0 || pos > len || insert_len <= 0)
 		return 0;
 
@@ -39,22 +42,87 @@ int insert_chars(char *str, int len, char *insert, int insert_len, int pos) {
 	return insert_substring(str, len, add, add_len, pos);
 }
 
+int remove_backslashes(char *str, int span) {
+	int len = strlen(str);
+	if (span < 0)
+		span = len;
+
+	int idx = 0;
+	for (int i = 0; i < span; i++) {
+		if (str[i] == '\\')
+			continue;
+
+		str[idx++] = str[i];
+	}
+
+	if (len > span)
+		memmove(&str[idx], &str[span], len - span + 1); // +1 for null terminator
+	else
+		str[idx] = 0;
+
+	return idx;
+}
+
+int escape_spaces(char *str, int span) {
+	int len = strlen(str);
+	if (span < 0)
+		span = len;
+
+	bool was_backslash = false;
+	for (int i = 0; i < span; i++) {
+		if (str[i] == ' ' && !was_backslash) {
+			memmove(&str[i+1], &str[i], len - i);
+			str[i++] = '\\';
+			span++;
+			len++;
+		}
+		was_backslash = str[i] == '\\';
+	}
+
+	return span;
+}
+
+int find_word(char *str, int start, int end) {
+	bool was_backslash = false;
+	for (int i = start; i < end; i++) {
+		if (str[i] == ' ' && !was_backslash)
+			return i+1;
+
+		was_backslash = str[i] == '\\';
+	}
+
+	return start;
+}
+
+bool difference_ignoring_backslashes(char *name, char *word, int word_len, int trailing) {
+	if (!trailing)
+		return false;
+
+	char *search = &word[word_len - trailing];
+	for (int i = 0; i < trailing && search[i]; i++) {
+		if (name[i] == '\\')
+			name++;
+		if (search[i] == '\\')
+			search++;
+
+		if (name[i] != search[i])
+			return true;
+	}
+
+	return false;
+}
+
 bool enumerate_directory(char *textbox, int cursor, char **word, int *word_length, int *search_length, char **result, int *n_entries) {
 	int input_len = strlen(textbox);
 	if (!input_len)
 		return textbox;
 
-	int start = 0;
-	for (int i = 0; i < cursor && i < input_len; i++) {
-		if (textbox[i] == ' ')
-			start = i+1;
-	}
+	int start = find_word(textbox, 0, cursor);
+	int end = find_word(textbox, start, input_len);
+	if (end == start)
+		end = input_len;
 
-	int end;
-	for (end = start; textbox[end] != ' ' && textbox[end]; end++);
-	end--;
-
-	int word_len = end - start + 1;
+	int word_len = end - start;
 	int d_len = word_len > 10 ? word_len : 10;
 	char directory[d_len];
 	memset(directory, 0, d_len);
@@ -62,16 +130,20 @@ bool enumerate_directory(char *textbox, int cursor, char **word, int *word_lengt
 	int search_len = 0;
 	bool is_command = !(textbox[start] == '/' || textbox[start] == '~');
 	if (!is_command) {
-		for (int i = end; i >= start && (textbox[i] != '/' && textbox[i] != '~'); i--)
+		for (int i = end-1; i >= start && (textbox[i] != '/' && textbox[i] != '~'); i--)
 			search_len++;
 
 		int extra = 0;
 		if (word_len - search_len > 1) extra = 1;
 
-		memcpy(directory, &textbox[start], word_len - search_len - extra);
+		d_len = word_len - search_len - extra;
+		memcpy(directory, &textbox[start], d_len);
+		directory[d_len] = 0;
+
+		remove_backslashes(directory, -1);
 	}
 	else {
-		strcpy(directory, "/usr/bin");
+		strcpy(directory, BINARIES_DIR);
 		search_len = word_len;
 	}
 
@@ -86,45 +158,62 @@ bool enumerate_directory(char *textbox, int cursor, char **word, int *word_lengt
 	return is_command;
 }
 
-int auto_complete(char *word, int *word_length, int max_len, char *results, int n_results, int trailing) {
-	int word_len = *word_length;
-
-	char *first = NULL;
+char *find_completeable_span(char *word, int word_len, char *results, int n_results, int trailing, int *match_length) {
+	char *match = NULL;
 	int match_len = 0;
 
 	if (trailing) {
 		char *str = results;
 		for (int i = 0; i < n_results; i++, str += strlen(str) + 1) {
-			if (strncmp(str, word + word_len - trailing, trailing))
+			if (difference_ignoring_backslashes(str, word, word_len, trailing))
 				continue;
 
-			if (!first) {
-				first = str;
-				match_len = strlen(first);
+			if (!match) {
+				match = str;
+				match_len = strlen(match);
 				continue;
 			}
 
 			int j;
-			for (j = trailing; j < match_len && str[j] == first[j]; j++);
+			for (j = trailing; j < match_len && str[j] == match[j]; j++);
 			match_len = j;
 		}
 	}
 	else if (n_results == 1) {
-		first = results;
-		match_len = strlen(first);
+		match = results;
+		match_len = strlen(match);
 	}
 
-	int add = match_len - trailing;
+	if (match_length)
+		*match_length = match_len;
 
-	if (first)
-		word_len += insert_substring(word, strlen(word), &first[trailing], add, word_len);
+	return match;
+}
+
+int complete(char *word, int *word_length, char *match, int match_len, int trailing) {
+	int word_len = *word_length;
+
+	int n_spaces = 0;
+	for (int i = 0; i < trailing; i++) {
+		if (match[i] == ' ')
+			n_spaces++;
+	}
+
+	int offset = trailing - n_spaces;
+	int add = match_len - offset;
+
+	if (word_len > 0 && word[0] == '~' && (word_len == 1 || word[1] != '/'))
+		word_len += insert_substring(word, -1, "/", 1, 1);
+
+	word_len += insert_substring(word, -1, &match[offset], add, word_len);
+	word_len = escape_spaces(word, word_len);
 
 	if (is_dir(word, word_len)) {
 		trailing = 0;
 		if (word[word_len-1] != '/')
-			insert_substring(word, strlen(word), "/", 1, word_len);
+			word_len += insert_substring(word, -1, "/", 1, word_len);
 	}
-	else if (first)
+	else if (match)
 		trailing = match_len;
 
 	if (word_length)
