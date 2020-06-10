@@ -36,7 +36,10 @@ static void destroy_pool() {
 	free(pool);
 }
 
-char *list_directory(char *directory, int *n_entries) {
+char *list_directory(char *directory, int len, int *n_entries) {
+	if (len < 0)
+		len = strlen(directory);
+
 	if (!pool) {
 		pool = malloc(POOL_SIZE);
 		atexit(destroy_pool);
@@ -57,14 +60,22 @@ char *list_directory(char *directory, int *n_entries) {
 	DIR *d = NULL;
 	if (directory[0] == '~') {
 		char *home = get_home_directory();
-		int len = strlen(home) + strlen(directory);
-		char path[len+1];
+		int home_len = strlen(home);
+		char path[home_len + len + 1];
+
 		strcpy(path, home);
-		strcpy(path + strlen(home), directory + 1);
+		strncpy(&path[home_len], &directory[1], len);
+		path[home_len + len] = 0;
+
 		d = opendir(path);
 	}
-	else
-		d = opendir(directory);
+	else {
+		char path[len + 1];
+		strncpy(path, directory, len);
+		path[len] = 0;
+
+		d = opendir(path);
+	}
 
 	if (!d)
 		return NULL;
@@ -74,17 +85,19 @@ char *list_directory(char *directory, int *n_entries) {
 	list_head = &l->next;
 
 	memset(l, 0, sizeof(Listing));
-	l->name = allocate(strlen(directory) + 1);
-	memcpy(l->name, directory, strlen(directory) + 1);
+	l->name = allocate(len + 1);
+	memcpy(l->name, directory, len + 1);
 
 	struct dirent *ent;
-	while (ent = readdir(d)) {
-		int len = strlen(ent->d_name);
-		char *str = allocate(len + 1);
+	while ((ent = readdir(d))) {
+		if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, ".."))
+			continue;
+
+		char *str = allocate(strlen(ent->d_name) + 1);
 		if (!str)
 			break;
 		else
-			memcpy(str, ent->d_name, len + 1);
+			strcpy(str, ent->d_name);
 
 		l->n_entries++;
 		if (!l->first)
@@ -154,4 +167,62 @@ char *get_home_directory() {
 	}
 
 	return home_dir;
+}
+
+bool find_program(char *name, char **error_str) {
+	char *bin_path = getenv("PATH");
+	char *next = bin_path;
+	char file[200];
+
+	char *p = &bin_path[-1];
+	do {
+		p++;
+		if (*p != ':' && *p != 0)
+			continue;
+
+		char *path = next;
+		next = p + 1;
+
+		int len = p - path;
+		int n_results = 0;
+		char *results = list_directory(path, len, &n_results);
+
+		bool found = false;
+		char *str = results;
+		for (int i = 0; i < n_results; i++, str += strlen(str) + 1) {
+			if (!strcmp(str, name)) {
+				found = true;
+				break;
+			}
+		}
+		if (!found) {
+			if (error_str) *error_str = "command not found: ";
+			continue;
+		}
+
+		if (error_str) *error_str = NULL;
+
+		sprintf(file, "%.*s/%s", len, path, name);
+
+		struct stat s;
+		if (stat(file, &s) != 0) {
+			if (error_str) *error_str = "command not found: ";
+			break;
+		}
+
+		if ((s.st_mode & S_IFMT) == S_IFDIR) {
+			if (error_str) *error_str = "not a regular file: ";
+			break;
+		}
+
+		if ((s.st_mode & S_IXUSR) == 0) {
+			if (error_str) *error_str = "missing execute permission: ";
+			break;
+		}
+
+		return true;
+
+	} while (*p);
+
+	return false;
 }

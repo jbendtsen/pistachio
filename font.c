@@ -9,6 +9,9 @@
 #define POOL_SIZE 1024 * 1024
 #define MAX_POOLS 256
 
+#define GAP_FACTOR  0.3
+#define SLANT       0.25
+
 static u8 *arena[MAX_POOLS] = {0};
 static int pool = 0;
 static int head = 0;
@@ -82,10 +85,25 @@ bool open_font(char *font_path) {
 	return true;
 }
 
-bool render_font(Screen_Info *info, float font_size, ARGB *fore, ARGB *back, Glyph *chars) {
+bool render_font(Screen_Info *info, float font_size, bool italics, u32 foreground, u32 background, Glyph *chars) {
+	ARGB fore, back;
+	make_argb(foreground, &fore);
+	make_argb(background, &back);
+
+	float gap = 0;
+	FT_Matrix matrix;
+
+	if (italics) {
+		gap = SLANT * GAP_FACTOR * font_size;
+		matrix = (FT_Matrix) { .xx = 0x10000, .xy = (int)(SLANT * 0x10000), .yx = 0, .yy = 0x10000 };
+	}
+
 	FT_Set_Char_Size(face, 0, font_size * 64, info->dpi_w, info->dpi_h);
 
 	for (int c = MIN_CHAR; c <= MAX_CHAR; c++) {
+		if (italics)
+			FT_Set_Transform(face, &matrix, NULL);
+
 		FT_Load_Char(face, c, FT_LOAD_RENDER);
 		FT_Bitmap *bmp = &face->glyph->bitmap;
 
@@ -94,7 +112,7 @@ bool render_font(Screen_Info *info, float font_size, ARGB *fore, ARGB *back, Gly
 			.img_w = bmp->width,
 			.img_h = bmp->rows,
 			.pitch = bmp->width * 4,
-			.box_w = FLOAT_FROM_16_16(face->glyph->linearHoriAdvance),
+			.box_w = gap + FLOAT_FROM_16_16(face->glyph->linearHoriAdvance),
 			.box_h = FLOAT_FROM_16_16(face->glyph->linearVertAdvance),
 			.left  = face->glyph->bitmap_left,
 			.top   = face->glyph->bitmap_top
@@ -114,10 +132,10 @@ bool render_font(Screen_Info *info, float font_size, ARGB *fore, ARGB *back, Gly
 		for (int i = 0; i < gl->img_w * gl->img_h; i++) {
 			float lum = (float)bmp->buffer[i] / 255.0;
 			p[i] =
-				((u32)(back->a + (fore->a - back->a) * lum) << 24) |
-				((u32)(back->r + (fore->r - back->r) * lum) << 16) |
-				((u32)(back->g + (fore->g - back->g) * lum) << 8) |
-				(u32)(back->b + (fore->b - back->b) * lum);
+				((u32)(back.a + (fore.a - back.a) * lum) << 24) |
+				((u32)(back.r + (fore.r - back.r) * lum) << 16) |
+				((u32)(back.g + (fore.g - back.g) * lum) << 8) |
+				(u32)(back.b + (fore.b - back.b) * lum);
 		}
 	}
 

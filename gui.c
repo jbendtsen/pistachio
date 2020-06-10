@@ -14,6 +14,8 @@
 #define MENU_SIZE 100
 
 typedef struct {
+	Window window;
+	GC gc;
 	Visual *visual;
 	Colormap colormap;
 	int depth;
@@ -32,6 +34,7 @@ typedef struct {
 XImage search_chars[N_CHARS] = {0};
 XImage results_chars[N_CHARS] = {0};
 XImage sel_chars[N_CHARS] = {0};
+XImage error_chars[N_CHARS] = {0};
 
 Display *display = NULL;
 
@@ -51,7 +54,7 @@ void make_32bpp_ximage(Display *dpy, Visual *visual, u8 *data, int w, int h, XIm
 
 	image->xoffset = 0;
 	image->depth = 32;
- 	image->data = data;
+ 	image->data = (char*)data;
 
 	image->bytes_per_line = w * 4;
 	image->bits_per_pixel = 32;
@@ -68,7 +71,7 @@ void make_glyph_ximages(Visual *visual, Glyph *glyphs, XImage *images) {
 	}
 }
 
-Window create_window(GUI_Settings *settings, Screen_Info *screen_info, Draw_Info *draw_info) {
+void create_window(GUI_Settings *settings, Screen_Info *screen_info, Draw_Info *draw_ctx) {
 	XVisualInfo info;
 	XMatchVisualInfo(display, screen_info->idx, 32, TrueColor, &info);
 
@@ -82,13 +85,13 @@ Window create_window(GUI_Settings *settings, Screen_Info *screen_info, Draw_Info
 	int x = (screen_info->w - w) / 2;
 	int y = (screen_info->h - h) / 2;
 
-	draw_info->visual   = info.visual;
-	draw_info->colormap = attr.colormap;
-	draw_info->depth    = info.depth;
-	draw_info->window_w = w;
-	draw_info->window_h = h;
+	draw_ctx->visual   = info.visual;
+	draw_ctx->colormap = attr.colormap;
+	draw_ctx->depth    = info.depth;
+	draw_ctx->window_w = w;
+	draw_ctx->window_h = h;
 
-	return XCreateWindow(
+	draw_ctx->window = XCreateWindow(
 		display, RootWindow(display, screen_info->idx),
 		x, y, w, h,
 		0, info.depth, InputOutput, info.visual,
@@ -134,7 +137,7 @@ void skip_taskbar(Display *dpy, Window window, Window root) {
 	);
 }
 
-void draw_string(char *text, int length, int *cursor, int x, int y, Window window, GC gc, Glyph *glyphs, XImage *chars) {
+void draw_string(char *text, int length, int *cursor, int x, int y, Draw_Info *info, Glyph *glyphs, XImage *chars) {
 	if (length < 1)
 		length = strlen(text);
 
@@ -142,31 +145,31 @@ void draw_string(char *text, int length, int *cursor, int x, int y, Window windo
 	int caret_y2 = y + FONT_HEIGHT(glyphs) * BELOW_CURSOR_RATIO;
 
 	if (text) {
-		for (int i = 0; i < length; i++) {
+		for (int i = 0; i < length && x < info->window_w - BORDER_PX; i++) {
 			int idx = glyph_indexof(text[i]);
 			if (idx < 0)
 				continue;
 
 			if (glyphs[idx].data)
 				XPutImage(
-					display, window, gc, &chars[idx],
+					display, info->window, info->gc, &chars[idx],
 					0, 0,
 					x + glyphs[idx].left, y - glyphs[idx].top,
 					glyphs[idx].img_w, glyphs[idx].img_h
 				);
 
 			if (cursor && *cursor == i)
-				XDrawLine(display, window, gc, x, caret_y1, x, caret_y2);
+				XDrawLine(display, info->window, info->gc, x, caret_y1, x, caret_y2);
 
 			x += FONT_WIDTH(glyphs);
 		}
 	}
 
 	if (cursor && *cursor == length)
-		XDrawLine(display, window, gc, x, caret_y1, x, caret_y2);
+		XDrawLine(display, info->window, info->gc, x, caret_y1, x, caret_y2);
 }
 
-void draw_menu(Menu_View *view, GUI_Settings *settings, Font_Renders *renders, Draw_Info *info, Window window, GC gc, int y) {
+void draw_menu(Menu_View *view, GUI_Settings *settings, Font_Renders *renders, Draw_Info *info, int y) {
 	int results_font_h = FONT_HEIGHT(renders->results_glyphs);
 	int sel_offset = results_font_h * BELOW_CURSOR_RATIO;
 
@@ -175,45 +178,51 @@ void draw_menu(Menu_View *view, GUI_Settings *settings, Font_Renders *renders, D
 	for (int i = view->top; i < view->top + view->visible && i < view->n_items; i++) {
 		int len = strlen(view->menu[i]);
 		if (i == view->selected) {
-			XSetForeground(display, gc, settings->selected);
+			XSetForeground(display, info->gc, settings->selected_color);
 			XFillRectangle(
-				display, window, gc,
+				display, info->window, info->gc,
 				BORDER_PX/2, y - results_font_h + sel_offset,
 				info->window_w - BORDER_PX, results_font_h
 			);
-			XSetForeground(display, gc, settings->caret);
-			draw_string(view->menu[i], len, NULL, BORDER_PX, y, window, gc, renders->sel_glyphs, sel_chars);
+			XSetForeground(display, info->gc, settings->caret_color);
+			draw_string(view->menu[i], len, NULL, BORDER_PX, y, info, renders->sel_glyphs, sel_chars);
 		}
 		else
-			draw_string(view->menu[i], len, NULL, BORDER_PX, y, window, gc, renders->results_glyphs, results_chars);
+			draw_string(view->menu[i], len, NULL, BORDER_PX, y, info, renders->results_glyphs, results_chars);
 
 		y += results_font_h;
 	}
 }
 
-int run_gui(GUI_Settings *settings, Screen_Info *screen_info, Font_Renders *renders, char *textbox, int textbox_len) {
-	Draw_Info info;
-	Window window = create_window(settings, screen_info, &info);
+int run_gui(GUI_Settings *settings, Screen_Info *screen_info, Font_Renders *renders, char *textbox, int textbox_len, char *error_msg) {
+	if (error_msg) {
+		XSync(display, true);
+		memset(textbox, 0, textbox_len);
+	}
 
-	XStoreName(display, window, WINDOW_TITLE);
-	remove_window_border(display, window);
+	Draw_Info draw_ctx;
+	create_window(settings, screen_info, &draw_ctx);
 
-	XSelectInput(display, window, ExposureMask | FocusChangeMask | KeyPressMask);
-	GC gc = XCreateGC(display, window, 0, NULL);
+	XStoreName(display, draw_ctx.window, WINDOW_TITLE);
+	remove_window_border(display, draw_ctx.window);
 
-	XSetForeground(display, gc, settings->caret);
-	XSetBackground(display, gc, settings->background);
+	XSelectInput(display, draw_ctx.window, ExposureMask | FocusChangeMask | KeyPressMask);
+	draw_ctx.gc = XCreateGC(display, draw_ctx.window, 0, NULL);
 
-	make_glyph_ximages(info.visual, renders->search_glyphs, &search_chars[0]);
-	make_glyph_ximages(info.visual, renders->results_glyphs, &results_chars[0]);
-	make_glyph_ximages(info.visual, renders->sel_glyphs, &sel_chars[0]);
+	XSetForeground(display, draw_ctx.gc, settings->caret_color);
+	XSetBackground(display, draw_ctx.gc, settings->background);
+
+	make_glyph_ximages(draw_ctx.visual, renders->search_glyphs, search_chars);
+	make_glyph_ximages(draw_ctx.visual, renders->results_glyphs, results_chars);
+	make_glyph_ximages(draw_ctx.visual, renders->sel_glyphs, sel_chars);
+	make_glyph_ximages(draw_ctx.visual, renders->error_glyphs, error_chars);
 
 	Atom delete_msg = XInternAtom(display, "WM_DELETE_WINDOW", false);
-	XSetWMProtocols(display, window, &delete_msg, 1);
+	XSetWMProtocols(display, draw_ctx.window, &delete_msg, 1);
 
-	XMapRaised(display, window);
+	XMapRaised(display, draw_ctx.window);
 
-	skip_taskbar(display, window, RootWindow(display, screen_info->idx));
+	skip_taskbar(display, draw_ctx.window, RootWindow(display, screen_info->idx));
 
 	int cursor = 0;
 
@@ -240,7 +249,17 @@ int run_gui(GUI_Settings *settings, Screen_Info *screen_info, Font_Renders *rend
 				int y = FONT_HEIGHT(renders->search_glyphs) * VERT_GAP_RATIO;
 				int caret_y1 = y - FONT_HEIGHT(renders->search_glyphs) * ABOVE_CURSOR_RATIO;
 				int caret_y2 = y + FONT_HEIGHT(renders->search_glyphs) * BELOW_CURSOR_RATIO;
-				XDrawLine(display, window, gc, x, caret_y1, x, caret_y2);
+				XDrawLine(display, draw_ctx.window, draw_ctx.gc, x, caret_y1, x, caret_y2);
+
+				if (error_msg)
+					draw_string(
+						error_msg, strlen(error_msg),
+						NULL,
+						BORDER_PX, draw_ctx.window_h - BORDER_PX,
+						&draw_ctx,
+						renders->error_glyphs, error_chars
+					);
+
 				break;
 			}
 			case FocusOut:
@@ -257,18 +276,11 @@ int run_gui(GUI_Settings *settings, Screen_Info *screen_info, Font_Renders *rend
 			{
 				KeySym key;
 				int input_len = XLookupString((XKeyEvent*)&event, key_buf, 10, &key, 0);
-
 				int len = strlen(textbox);
-				bool draw = true;
 
 				switch (key) {
 					case XK_Escape:
-						if (view.selected < 0)
-							done = true;
-						else {
-							view.top = 0;
-							view.selected = -1;
-						}
+						done = true;
 						break;
 
 					case XK_Return:
@@ -374,23 +386,23 @@ int run_gui(GUI_Settings *settings, Screen_Info *screen_info, Font_Renders *rend
 					}
 				}
 
-				XClearArea(display, window, 0, 0, info.window_w, info.window_h, false);
+				XClearArea(display, draw_ctx.window, 0, 0, draw_ctx.window_w, draw_ctx.window_h, false);
 
 				int search_font_h = FONT_HEIGHT(renders->search_glyphs);
 				int gap = search_font_h * VERT_GAP_RATIO;
 
-				draw_string(textbox, -1, &cursor, BORDER_PX, gap, window, gc, renders->search_glyphs, search_chars);
+				draw_string(textbox, -1, &cursor, BORDER_PX, gap, &draw_ctx, renders->search_glyphs, search_chars);
 
 				if (show_menu)
-					draw_menu(&view, settings, renders, &info, window, gc, gap * 2);
+					draw_menu(&view, settings, renders, &draw_ctx, gap * 2);
 
 				break;
 			}
 		}
 	}
 
-	XFreeGC(display, gc);
-	XDestroyWindow(display, window);
+	XFreeGC(display, draw_ctx.gc);
+	XDestroyWindow(display, draw_ctx.window);
 
 	return run_command ? STATUS_COMMAND : STATUS_EXIT;
 }
@@ -400,7 +412,6 @@ bool open_display(int screen_idx, Screen_Info *screen_info) {
 	if (!display)
 		return false;
 
-	atexit(close_display);
 	Screen *screen = ScreenOfDisplay(display, screen_idx);
 	if (!screen)
 		return false;

@@ -22,7 +22,7 @@ int insert_substring(char *str, int len, char *insert, int insert_len, int pos) 
 		return 0;
 
 	if (pos == len)
-		strncpy(&str[pos], insert, insert_len);
+		memcpy(&str[pos], insert, insert_len);
 	else {
 		memmove(&str[pos + insert_len], &str[pos], len - pos);
 		memcpy(&str[pos], insert, insert_len);
@@ -94,6 +94,19 @@ int find_word(char *str, int start, int end) {
 	return start;
 }
 
+void prepend_word(char *word, char *sentence) {
+	if (!word || !sentence)
+		return;
+
+	int insert_len = strlen(word) + 1;
+	if (insert_len <= 1)
+		return;
+
+	memmove(&sentence[insert_len], sentence, strlen(sentence) + 1);
+	strcpy(sentence, word);
+	sentence[insert_len-1] = ' ';
+}
+
 bool difference_ignoring_backslashes(char *name, char *word, int word_len, int trailing) {
 	if (!trailing)
 		return false;
@@ -147,7 +160,7 @@ bool enumerate_directory(char *textbox, int cursor, char **word, int *word_lengt
 		search_len = word_len;
 	}
 
-	*result = list_directory(directory, n_entries);
+	*result = list_directory(directory, -1, n_entries);
 	if (word)
 		*word = &textbox[start];
 	if (word_length)
