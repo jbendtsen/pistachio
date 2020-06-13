@@ -23,29 +23,42 @@ typedef unsigned char u8;
 typedef unsigned int u32;
 
 typedef struct {
-	float a, r, g, b;
-} ARGB;
+	int pool_size;
+	int pool;
+	int idx;
+	bool allow_overflow;
+	bool initialized;
+} Arena;
+
+struct program_struct {
+	char *command;
+	char *extensions;
+	int n_extensions;
+	bool daemonize;
+	struct program_struct *next;
+};
+typedef struct program_struct Program;
 
 typedef struct {
-	int screen;
-	float frac_w;
-	float frac_h;
-	char *font_name;
-	float search_font_size;
-	float results_font_size;
-	float error_font_size;
-	u32 foreground;
-	u32 background;
+	float size;
+	u32 color;
+	bool oblique;
+} Font_Attrs;
+
+typedef struct {
+	float window_w;
+	float window_h;
+	char *font_path;
+	Font_Attrs search_font;
+	Font_Attrs results_font;
+	Font_Attrs error_font;
+	u32 back_color;
 	u32 caret_color;
 	u32 selected_color;
-	u32 error_color;
-} GUI_Settings;
-
-typedef struct {
-	char *folder_program;
-	char *default_file_program;
-	char *sudo_program;
-} Command_Settings;
+	Program folder_program;
+	Program default_program;
+	Program *programs;
+} Settings;
 
 typedef struct {
 	int idx;
@@ -70,6 +83,37 @@ typedef struct {
 	Glyph *error_glyphs;
 } Font_Renders;
 
+typedef struct {
+	float a, r, g, b;
+} ARGB;
+
+// arena.c
+void make_arena(int pool_size, Arena *a);
+void find_next_pool(Arena *a);
+void *allocate(Arena *a, int size);
+void defer_arena_destruction(void);
+
+// config.c
+Settings *load_config(void);
+
+// directory.c
+void init_directory_arena(void);
+char *list_directory(char *directory, int len, int *n_entries);
+char *get_home_directory(void);
+char *get_desugared_path(char *str, int len);
+bool find_program(char *name, char **error_str);
+
+// font.c
+int glyph_indexof(char c);
+bool open_font(char *font_path);
+bool render_font(Screen_Info *info, Font_Attrs *attrs, u32 background, Glyph *chars);
+void close_font(void);
+
+// gui.c
+bool open_display(int screen_idx, Screen_Info *screen_info);
+void close_display(void);
+int run_gui(Settings *config, Screen_Info *screen_info, Font_Renders *renders, char *textbox, int textbox_len, char *error_msg);
+
 // utils.c
 void make_argb(u32 color, ARGB *argb);
 void remove_char(char *str, int len, int pos);
@@ -77,31 +121,11 @@ int insert_chars(char *str, int len, char *insert, int insert_len, int pos);
 int insert_substring(char *str, int len, char *insert, int insert_len, int pos);
 int remove_backslashes(char *str, int span);
 int escape_spaces(char *str, int span);
-int find_word(char *str, int start, int end);
+int find_next_word(char *str, int start, int end);
 void prepend_word(char *word, char *sentence);
 bool difference_ignoring_backslashes(char *str, char *word, int word_len, int trailing);
 bool enumerate_directory(char *textbox, int cursor, char **word, int *word_length, int *search_length, char **result, int *n_entries);
 char *find_completeable_span(char *word, int word_len, char *results, int n_results, int trailing, int *match_length);
 int complete(char *word, int *word_length, char *match, int match_len, int trailing);
-
-// dir.c
-char *list_directory(char *directory, int len, int *n_entries);
-char *get_home_directory(void);
-bool find_program(char *name, char **error_str);
-int stat_ex(char *str, int len, struct stat *s);
-bool is_dir(char *str, int len);
-bool is_file(char *str, int len);
-
-// font.c
-char *get_font_path(char *name);
-int glyph_indexof(char c);
-bool open_font(char *font_path);
-bool render_font(Screen_Info *info, float font_size, bool italics, u32 foreground, u32 background, Glyph *chars);
-void close_font();
-
-// gui.c
-bool open_display(int screen_idx, Screen_Info *screen_info);
-void close_display();
-int run_gui(GUI_Settings *settings, Screen_Info *screen_info, Font_Renders *renders, char *textbox, int textbox_len, char *error_msg);
 
 #endif

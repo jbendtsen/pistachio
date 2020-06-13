@@ -1,74 +1,23 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
-#include <fontconfig/fontconfig.h>
 
 #include "pistachio.h"
 
 #define FLOAT_FROM_16_16(n) ((float)((n) >> 16) + (float)((n) & 0xffff) / 65536.0)
 
-#define POOL_SIZE 1024 * 1024
-#define MAX_POOLS 256
-
 #define GAP_FACTOR  0.3
 #define SLANT       0.25
 
-static u8 *arena[MAX_POOLS] = {0};
-static int pool = 0;
-static int head = 0;
+#define POOL_SIZE 1024 * 1024
 
-static u8 *allocate(int size) {
-	if (size < 1 || size > POOL_SIZE)
-		return NULL;
+static Arena arena = {0};
 
-	if (head+size > POOL_SIZE) {
-		pool++;
-		head = 0;
-	}
-	if (pool >= MAX_POOLS)
-		return NULL;
-
-	if (!arena[pool])
-		arena[pool] = malloc(POOL_SIZE);
-
-	u8 *ptr = &arena[pool][head];
-	head += size;
-	return ptr;
-}
-
-void destroy_font_arena() {
-	for (int i = 0; i < MAX_POOLS; i++) {
-		if (arena[i]) {
-			free(arena[i]);
-			arena[i] = NULL;
-		}
-	}
-}
-
-char *get_font_path(char *name) {
-	FcConfig *config = FcInitLoadConfigAndFonts();
-
-	FcPattern *pattern = FcNameParse((const FcChar8*)name);
-	FcConfigSubstitute(config, pattern, FcMatchPattern);
-	FcDefaultSubstitute(pattern);
-
-	FcResult result;
-	FcPattern *font = FcFontMatch(config, pattern, &result);
-
-	char *path = NULL;
-	if (font)
-		FcPatternGetString(font, FC_FILE, 0, (FcChar8**)&path);
-
-	FcPatternDestroy(pattern);
-	FcConfigDestroy(config);
-	return path;
-}
+FT_Library library;
+FT_Face face;
 
 int glyph_indexof(char c) {
 	return (c < MIN_CHAR || c > MAX_CHAR) ? -1 : c - MIN_CHAR;
 }
-
-FT_Library library;
-FT_Face face;
 
 bool open_font(char *font_path) {
 	if (FT_Init_FreeType(&library) != 0) {
@@ -81,29 +30,29 @@ bool open_font(char *font_path) {
 		return false;
 	}
 
-	atexit(destroy_font_arena);
 	return true;
 }
 
-bool render_font(Screen_Info *info, float font_size, bool italics, u32 foreground, u32 background, Glyph *chars) {
+bool render_font(Screen_Info *info, Font_Attrs *attrs, u32 background, Glyph *chars) {
+	if (!arena.initialized)
+		make_arena(POOL_SIZE, &arena);
+
 	ARGB fore, back;
-	make_argb(foreground, &fore);
+	make_argb(attrs->color, &fore);
 	make_argb(background, &back);
 
 	float gap = 0;
 	FT_Matrix matrix;
 
-	if (italics) {
-		gap = SLANT * GAP_FACTOR * font_size;
+	if (attrs->oblique) {
+		gap = SLANT * GAP_FACTOR * attrs->size;
 		matrix = (FT_Matrix) { .xx = 0x10000, .xy = (int)(SLANT * 0x10000), .yx = 0, .yy = 0x10000 };
+		FT_Set_Transform(face, &matrix, NULL);
 	}
 
-	FT_Set_Char_Size(face, 0, font_size * 64, info->dpi_w, info->dpi_h);
+	FT_Set_Char_Size(face, 0, attrs->size * 64, info->dpi_w, info->dpi_h);
 
 	for (int c = MIN_CHAR; c <= MAX_CHAR; c++) {
-		if (italics)
-			FT_Set_Transform(face, &matrix, NULL);
-
 		FT_Load_Char(face, c, FT_LOAD_RENDER);
 		FT_Bitmap *bmp = &face->glyph->bitmap;
 
@@ -122,9 +71,9 @@ bool render_font(Screen_Info *info, float font_size, bool italics, u32 foregroun
 		if (!size)
 			continue;
 
-		gl->data = allocate(size);
+		gl->data = allocate(&arena, size);
 		if (!gl->data) {
-			fprintf(stderr, "Failed to allocate glyph bitmap '%c' (pool:%d, head:%d)\n", c, pool, head);
+			fprintf(stderr, "Failed to allocate glyph bitmap '%c'\n", c);
 			return false;
 		}
 
@@ -139,6 +88,7 @@ bool render_font(Screen_Info *info, float font_size, bool italics, u32 foregroun
 		}
 	}
 
+	FT_Set_Transform(face, NULL, NULL);
 	return true;
 }
 

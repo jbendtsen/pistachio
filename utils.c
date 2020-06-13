@@ -82,7 +82,7 @@ int escape_spaces(char *str, int span) {
 	return span;
 }
 
-int find_word(char *str, int start, int end) {
+int find_next_word(char *str, int start, int end) {
 	bool was_backslash = false;
 	for (int i = start; i < end; i++) {
 		if (str[i] == ' ' && !was_backslash)
@@ -92,6 +92,42 @@ int find_word(char *str, int start, int end) {
 	}
 
 	return start;
+}
+
+void find_word(char *str, int idx, int *first, int *last) {
+	int len = strlen(str);
+	if (idx >= len)
+		idx = len-1;
+
+	bool seen_non_space = false;
+	int i = idx;
+	while (true) {
+		if (i == 0) {
+			*first = str[0] == ' ' ? 1 : 0;
+			break;
+		}
+		if (str[i] == ' ' && str[i-1] != '\\' && seen_non_space) {
+			*first = i+1;
+			break;
+		}
+		if (!seen_non_space)
+			seen_non_space = str[i] != ' ';
+		i--;
+	}
+
+	bool was_backslash = false;
+	i = *first;
+	while (true) {
+		if (str[i] == ' ' && !was_backslash) {
+			*last = i-1;
+			break;
+		}
+		if (i == len-1) {
+			*last = i;
+			break;
+		}
+		was_backslash = str[i++] == '\\';
+	}
 }
 
 void prepend_word(char *word, char *sentence) {
@@ -127,30 +163,28 @@ bool difference_ignoring_backslashes(char *name, char *word, int word_len, int t
 
 bool enumerate_directory(char *textbox, int cursor, char **word, int *word_length, int *search_length, char **result, int *n_entries) {
 	int input_len = strlen(textbox);
-	if (!input_len)
-		return textbox;
+	if (!input_len || textbox[input_len-1] == ' ')
+		return true;
 
-	int start = find_word(textbox, 0, cursor);
-	int end = find_word(textbox, start, input_len);
-	if (end == start)
-		end = input_len;
+	int first = 0, last = 0;
+	find_word(textbox, cursor, &first, &last);
 
-	int word_len = end - start;
+	int word_len = last - first + 1;
 	int d_len = word_len > 10 ? word_len : 10;
 	char directory[d_len];
 	memset(directory, 0, d_len);
 
 	int search_len = 0;
-	bool is_command = !(textbox[start] == '/' || textbox[start] == '~');
+	bool is_command = !(textbox[first] == '/' || textbox[first] == '~');
 	if (!is_command) {
-		for (int i = end-1; i >= start && (textbox[i] != '/' && textbox[i] != '~'); i--)
+		for (int i = last; i >= first && (textbox[i] != '/' && textbox[i] != '~'); i--)
 			search_len++;
 
 		int extra = 0;
 		if (word_len - search_len > 1) extra = 1;
 
 		d_len = word_len - search_len - extra;
-		memcpy(directory, &textbox[start], d_len);
+		memcpy(directory, &textbox[first], d_len);
 		directory[d_len] = 0;
 
 		remove_backslashes(directory, -1);
@@ -162,7 +196,7 @@ bool enumerate_directory(char *textbox, int cursor, char **word, int *word_lengt
 
 	*result = list_directory(directory, -1, n_entries);
 	if (word)
-		*word = &textbox[start];
+		*word = &textbox[first];
 	if (word_length)
 		*word_length = word_len;
 	if (search_length)
@@ -221,7 +255,11 @@ int complete(char *word, int *word_length, char *match, int match_len, int trail
 	word_len += insert_substring(word, -1, &match[offset], add, word_len);
 	word_len = escape_spaces(word, word_len);
 
-	if (is_dir(word, word_len)) {
+	struct stat s;
+	char *path = get_desugared_path(word, word_len);
+
+	// If 'word' now refers to a folder, append a forward slash for further tab completion
+	if (stat(path, &s) == 0 & (s.st_mode & S_IFMT) == S_IFDIR) {
 		trailing = 0;
 		if (word[word_len-1] != '/')
 			word_len += insert_substring(word, -1, "/", 1, word_len);

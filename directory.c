@@ -20,36 +20,21 @@ typedef struct _Listing Listing;
 Listing *listings = NULL;
 Listing **list_head = NULL;
 
-static char *pool = NULL;
-static int head = 0;
+static Arena arena = {0};
 
-static char *allocate(int size) {
-	if (head + size > POOL_SIZE)
-		return NULL;
-
-	char *ptr = &pool[head];
-	head += size;
-	return ptr;
-}
-
-static void destroy_pool() {
-	free(pool);
+void init_directory_arena() {
+	make_arena(POOL_SIZE, &arena);
+	list_head = &listings;
 }
 
 char *list_directory(char *directory, int len, int *n_entries) {
 	if (len < 0)
 		len = strlen(directory);
 
-	if (!pool) {
-		pool = malloc(POOL_SIZE);
-		atexit(destroy_pool);
-		list_head = &listings;
-	}
-
 	if (listings) {
 		Listing *l = listings;
 		while (l) {
-			if (!strcmp(directory, l->name)) {
+			if (l->name && !strcmp(directory, l->name)) {
 				*n_entries = l->n_entries;
 				return l->first;
 			}
@@ -80,71 +65,64 @@ char *list_directory(char *directory, int len, int *n_entries) {
 	if (!d)
 		return NULL;
 
-	Listing *l = (Listing*)allocate(sizeof(Listing));
+	Listing *l = (Listing*)allocate(&arena, sizeof(Listing));
 	*list_head = l;
 	list_head = &l->next;
 
 	memset(l, 0, sizeof(Listing));
-	l->name = allocate(len + 1);
+	l->name = allocate(&arena, len + 1);
 	memcpy(l->name, directory, len + 1);
 
+	// This codebase depends on directory entries being laid out contiguously in memory,
+	//  so we temporarily disable the ability for this arena to spill over to another pool.
+	arena.allow_overflow = false;
+
+	char *prev = NULL;
 	struct dirent *ent;
 	while ((ent = readdir(d))) {
 		if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, ".."))
 			continue;
 
-		char *str = allocate(strlen(ent->d_name) + 1);
-		if (!str)
-			break;
-		else
-			strcpy(str, ent->d_name);
+		int ent_sz = strlen(ent->d_name) + 1;
+		char *str = allocate(&arena, ent_sz);
+
+		if (!str) {
+			// If there was enough room for the string
+			if (arena.idx <= arena.pool_size - ent_sz)
+				break;
+
+			int allocated = prev == NULL ? 0 : (int)(prev - l->first) + strlen(prev) + 1;
+			int size = allocated + ent_sz;
+			// If this set of entries takes up more room than a single pool
+			if (size > arena.pool_size)
+				break;
+
+			// Copy this set of entries over to the next pool
+			find_next_pool(&arena);
+			if (l->first && prev) {
+				char *start = l->first;
+				l->first = allocate(&arena, size);
+				memcpy(l->first, start, allocated);
+				str = &l->first[allocated];
+			}
+			else
+				str = allocate(&arena, ent_sz);
+		}
+
+		strcpy(str, ent->d_name);
 
 		l->n_entries++;
 		if (!l->first)
 			l->first = str;
+
+		prev = str;
 	}
 
 	closedir(d);
+	arena.allow_overflow = true;
 
 	*n_entries = l->n_entries;
 	return l->first;
-}
-
-int stat_ex(char *str, int len, struct stat *s) {
-	char *home = NULL;
-	int home_len = 0;
-	int offset = 0;
-
-	if (str[0] == '~') {
-		home = get_home_directory();
-		home_len = strlen(home);
-		offset = 1;
-	}
-
-	char path[len + home_len + 1];
-	if (home)
-		strcpy(path, home);
-
-	strcpy(&path[home_len], &str[offset]);
-	remove_backslashes(path, -1);
-
-	return stat(path, s);
-}
-
-bool is_dir(char *str, int len) {
-	struct stat s;
-	if (stat_ex(str, len, &s) != 0)
-		return false;
-
-	return (s.st_mode & S_IFMT) == S_IFDIR;
-}
-
-bool is_file(char *str, int len) {
-	struct stat s;
-	if (stat_ex(str, len, &s) != 0)
-		return false;
-
-	return (s.st_mode & S_IFMT) == S_IFREG;
 }
 
 char *home_dir = NULL;
@@ -162,11 +140,31 @@ char *get_home_directory() {
 
 	if (home) {
 		int len = strlen(home);
-		home_dir = allocate(len + 1);
+		home_dir = allocate(&arena, len + 1);
 		strcpy(home_dir, home);
 	}
 
 	return home_dir;
+}
+
+char *get_desugared_path(char *str, int len) {
+	char *home = NULL;
+	int home_len = 0;
+	int offset = 0;
+
+	if (str[0] == '~') {
+		home = get_home_directory();
+		home_len = strlen(home);
+		offset = 1;
+	}
+
+	char *path = allocate(&arena, len + home_len + 1);
+
+	if (home) strcpy(path, home);
+	strcpy(&path[home_len], &str[offset]);
+	remove_backslashes(path, -1);
+
+	return path;
 }
 
 bool find_program(char *name, char **error_str) {
