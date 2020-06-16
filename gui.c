@@ -376,7 +376,8 @@ int run_gui(Settings *config, Screen_Info *screen_info, Font_Renders *renders, c
 				}
 
 				if (match) {
-					trailing = complete(word, &word_len, match, match_len, trailing);
+					bool folder_completion = view.n_items == 1 || view.selected >= 0;
+					trailing = complete(word, &word_len, match, match_len, trailing, folder_completion);
 
 					if (key == XK_Return) {
 						done = true;

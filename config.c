@@ -2,18 +2,17 @@
 
 #define CONFIG_FILE   "~/.config/pistachio/configuration"
 
-#define FONT_PATH     "/usr/share/fonts/noto/NotoSansMono-Regular.ttf"
-#define SEARCH_SIZE   16.0
-#define RESULTS_SIZE  12.0
-#define ERROR_SIZE    14.0
-#define FOREGROUND    0xfff8f8f8
-#define BACKGROUND    0xe8303030
-#define CARET         0xffe0e0e0
-#define SELECTED      0xf0608040
-#define ERROR_COLOR   0xf0ff8080
-#define WINDOW_WIDTH  0.4
-#define WINDOW_HEIGHT 0.3
-
+#define FONT_PATH        "/usr/share/fonts/noto/NotoSansMono-Regular.ttf"
+#define SEARCH_SIZE      16.0
+#define RESULTS_SIZE     12.5
+#define ERROR_SIZE       14.0
+#define FOREGROUND       0xfff8f8f8
+#define BACKGROUND       0xe8303030
+#define CARET            0xffe0e0e0
+#define SELECTED         0xf0608040
+#define ERROR_COLOR      0xf0ff8080
+#define WINDOW_WIDTH     0.4
+#define WINDOW_HEIGHT    0.3
 #define FOLDER_PROGRAM   "thunar"
 #define DEFAULT_PROGRAM  "xed"
 
@@ -22,8 +21,8 @@
 static Arena arena = {0};
 
 Settings config = {
-	.window_w          = WINDOW_WIDTH,
-	.window_h          = WINDOW_HEIGHT,
+	.window_w        = WINDOW_WIDTH,
+	.window_h        = WINDOW_HEIGHT,
 	.font_path       = FONT_PATH,
 	.search_font = {
 		.size    = SEARCH_SIZE,
@@ -43,8 +42,20 @@ Settings config = {
 	.back_color      = BACKGROUND,
 	.caret_color     = CARET,
 	.selected_color  = SELECTED,
-	.folder_program  = FOLDER_PROGRAM,
-	.default_program = DEFAULT_PROGRAM,
+	.folder_program = {
+		FOLDER_PROGRAM,
+		NULL,
+		0,
+		false,
+		NULL
+	},
+	.default_program = {
+		DEFAULT_PROGRAM,
+		NULL,
+		0,
+		false,
+		NULL
+	}
 };
 
 char *command_list[] = {
@@ -57,8 +68,8 @@ char *command_list[] = {
 	"hl-color",
 	"window-width",
 	"window-height",
-	"folder-program",
-	"default-program",
+	"folder-command",
+	"default-command",
 	"program",
 	"command",
 	"nodaemon"
@@ -278,11 +289,11 @@ void parse_config_line(char *line, int len, bool *daemonize) {
 			set_size(params, params_len, &config.window_h);
 			break;
 
-		case 9: // folder-program
+		case 9: // folder-command
 			config.folder_program.command = allocate_string(params, params_len);
 			config.folder_program.daemonize = daemonize != NULL ? *daemonize : true;
 			break;
-		case 10: // default-program
+		case 10: // default-command
 			config.default_program.command = allocate_string(params, params_len);
 			config.default_program.daemonize = daemonize != NULL ? *daemonize : true;
 			break;
@@ -304,14 +315,16 @@ void parse_config_line(char *line, int len, bool *daemonize) {
 }
 
 Settings *load_config() {
+	if (!arena.initialized)
+		make_arena(POOL_SIZE, &arena);
+
 	char *path = get_desugared_path(CONFIG_FILE, strlen(CONFIG_FILE));
 
 	FILE *f = fopen(path, "rb");
-	if (!f)
+	if (!f) {
+		save_config(path);
 		return &config;
-
-	if (!arena.initialized)
-		make_arena(POOL_SIZE, &arena);
+	}
 
 	fseek(f, 0, SEEK_END);
 	int sz = ftell(f);
@@ -351,4 +364,72 @@ Settings *load_config() {
 		config.font_path = get_desugared_path(config.font_path, strlen(config.font_path));
 
 	return &config;
+}
+
+void save_config(char *cfg_path) {
+	int len = strlen(cfg_path);
+	char *path = allocate(&arena, len + 1);
+	memset(path, 0, len + 1);
+
+	char *src = cfg_path, *dst = path;
+	for (int i = 0; i < len; i++) {
+		if (i > 0 && *src == '/')
+			mkdir(path, 0777);
+
+		*dst++ = *src++;
+	}
+
+	FILE *f = fopen(path, "w");
+	if (!f) {
+		fprintf(stderr, "Could not write new configuration file \"%s\"\n", path);
+		return;
+	}
+
+	u32 colors[] = {
+		config.search_font.color,
+		config.results_font.color,
+		config.error_font.color,
+		config.back_color,
+		config.caret_color,
+		config.selected_color
+	};
+	char color_strs[54] = {0};
+
+	char *p = color_strs;
+	for (int i = 0; i < 6; i++) {
+		u32 c = colors[i];
+		for (int j = 0; j < 8; j++) {
+			u32 d = (c >> 28) & 0xf;
+			*p++ = d < 10 ? '0' + d : 'a' + (d-10);
+			c <<= 4;
+		}
+		p++;
+	}
+
+	fprintf(f,
+		"font-path %s\n"
+		"search-font %g %s%s\n"
+		"results-font %g %s%s\n"
+		"error-font %g %s%s\n"
+		"back-color %s\n"
+		"caret-color %s\n"
+		"hl-color %s\n"
+		"window-width %g%%\n"
+		"window-height %g%%\n"
+		"folder-program %s\n"
+		"default-program %s\n",
+		config.font_path,
+		config.search_font.size,  &color_strs[0 * 9], config.search_font.oblique ? " oblique" : "",
+		config.results_font.size, &color_strs[1 * 9], config.results_font.oblique ? " oblique" : "",
+		config.error_font.size,  &color_strs[2 * 9], config.error_font.oblique ? " oblique" : "",
+		&color_strs[3 * 9],
+		&color_strs[4 * 9],
+		&color_strs[5 * 9],
+		config.window_w * 100.0,
+		config.window_h * 100.0,
+		config.folder_program.command,
+		config.default_program.command
+	);
+
+	fclose(f);
 }

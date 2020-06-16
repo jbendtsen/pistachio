@@ -95,6 +95,7 @@ void defer_arena_destruction(void);
 
 // config.c
 Settings *load_config(void);
+void save_config(char *path);
 
 // directory.c
 void init_directory_arena(void);
@@ -126,6 +127,6 @@ void prepend_word(char *word, char *sentence);
 bool difference_ignoring_backslashes(char *str, char *word, int word_len, int trailing);
 bool enumerate_directory(char *textbox, int cursor, char **word, int *word_length, int *search_length, char **result, int *n_entries);
 char *find_completeable_span(char *word, int word_len, char *results, int n_results, int trailing, int *match_length);
-int complete(char *word, int *word_length, char *match, int match_len, int trailing);
+int complete(char *word, int *word_length, char *match, int match_len, int trailing, bool folder_completion);
 
 #endif

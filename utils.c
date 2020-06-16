@@ -237,7 +237,7 @@ char *find_completeable_span(char *word, int word_len, char *results, int n_resu
 	return match;
 }
 
-int complete(char *word, int *word_length, char *match, int match_len, int trailing) {
+int complete(char *word, int *word_length, char *match, int match_len, int trailing, bool folder_completion) {
 	int word_len = *word_length;
 
 	int n_spaces = 0;
@@ -258,8 +258,8 @@ int complete(char *word, int *word_length, char *match, int match_len, int trail
 	struct stat s;
 	char *path = get_desugared_path(word, word_len);
 
-	// If 'word' now refers to a folder, append a forward slash for further tab completion
-	if (stat(path, &s) == 0 & (s.st_mode & S_IFMT) == S_IFDIR) {
+	// If folder completion is enabled and 'word' refers to a folder, append a forward slash for further tab completion
+	if (folder_completion && stat(path, &s) == 0 && (s.st_mode & S_IFMT) == S_IFDIR) {
 		trailing = 0;
 		if (word[word_len-1] != '/')
 			word_len += insert_substring(word, -1, "/", 1, word_len);
