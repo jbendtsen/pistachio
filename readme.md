@@ -59,7 +59,7 @@ The command used for a file which does not have an extension that is associated 
 The command used for files that match the given file extension. Note that all file extensions must have the `.` provided, eg. `command .mp4 ffplay -fs`.
 
 ### `program <name> <extensions...>`
-The program used for files that match one of the given file extensions. Note that a command with spaces can't be used here, eg. `program sxiv .png .bmp .jpg .gif`.
+The program used for files that match one of the given file extensions. Note that a command with spaces can't be used here - only a program's name, eg. `program sxiv .png .bmp .jpg .gif`.
 
 ### `nodaemon <option> [params]`
 Marks a configuration option such that when that program or command is launched, it won't be as a daemon process, eg. `nodaemon program firefox .html .htm`.
