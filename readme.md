@@ -25,7 +25,7 @@ Applies the following settings to the font used for the search bar:
 	- Optional. Represented as a 32-bit (8 digit) hexadecimal number in the format ARGB. The top two digits refer to Alpha (transparency), the next two refer to Red, then Green, then Blue.
 	- Note that the `#` symbol is the comment symbol, so placing this in front of a colour will **prevent the colour from being used**.
 - `[style]`
-	- Optional. Supported values or `oblique` (better known as *italics*) and `bold`.
+	- Optional. Supported values are `oblique` (better known as *italics*) and `bold`.
 
 ### `results-font <size> [color] [style...]`
 Applies these settings to the font used for displaying search results.
