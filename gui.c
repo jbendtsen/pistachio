@@ -243,7 +243,6 @@ int run_gui(Settings *config, Screen_Info *screen_info, Glyph *renders, char *te
 	Listing listing;
 
 	char key_buf[10] = {0};
-	bool modifier_held = false;
 
 	bool run_command = false;
 	bool done = false;
@@ -284,8 +283,6 @@ int run_gui(Settings *config, Screen_Info *screen_info, Glyph *renders, char *te
 				break;
 
 			case KeyRelease:
-				if (IsModifierKey(XLookupKeysym((XKeyEvent*)&event, 0)))
-					modifier_held = false;
 				break;
 
 			case KeyPress:
@@ -294,8 +291,6 @@ int run_gui(Settings *config, Screen_Info *screen_info, Glyph *renders, char *te
 
 				KeySym key;
 				int input_len = XLookupString((XKeyEvent*)&event, key_buf, 10, &key, 0);
-				if (IsModifierKey(key))
-					modifier_held = true;
 
 				int up_delta = 0;
 				int down_delta = 0;
@@ -363,6 +358,8 @@ int run_gui(Settings *config, Screen_Info *screen_info, Glyph *renders, char *te
 					view.selected = pos > -1 ? pos : -1;
 					if (view.selected >= 0 && view.selected < view.top)
 						view.top = view.selected;
+					if (view.selected < 0)
+						view.top = 0;
 				}
 				else if (down_delta) {
 					int pos = view.selected + down_delta;
