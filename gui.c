@@ -374,7 +374,7 @@ int run_gui(Settings *config, Screen_Info *screen_info, Glyph *renders, char *te
 				int add_len = 0;
 
 				// shift+tab
-				if (key == XK_ISO_Left_Tab) {
+				if (key == XK_ISO_Left_Tab && len > 0) {
 					int idx = len - 1;
 					do {
 						textbox[idx] = 0;
