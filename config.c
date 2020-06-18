@@ -27,17 +27,20 @@ Settings config = {
 	.search_font = {
 		.size    = SEARCH_SIZE,
 		.color   = FOREGROUND,
-		.oblique = false
+		.oblique = false,
+		.bold    = false
 	},
 	.results_font = {
 		.size    = RESULTS_SIZE,
 		.color   = FOREGROUND,
-		.oblique = false
+		.oblique = false,
+		.bold    = false
 	},
 	.error_font = {
 		.size    = ERROR_SIZE,
 		.color   = ERROR_COLOR,
-		.oblique = true
+		.oblique = true,
+		.bold    = false
 	},
 	.back_color      = BACKGROUND,
 	.caret_color     = CARET,
@@ -84,6 +87,7 @@ char *allocate_string(char *src, int len) {
 
 int set_color(char *params, int params_len, int offset, u32 *out_color) {
 	char *p = &params[offset];
+
 	int idx = 0;
 	u32 color = 0;
 
@@ -126,11 +130,21 @@ void set_font_attrs(char *params, int params_len, Font_Attrs *font) {
 	// skip to the next word
 	while ((p-params) < params_len && (*p == ' ' || *p == '\t')) p++;
 
-	p += set_color(params, p-params, params_len, &font->color);
+	p += set_color(params, params_len, p-params, &font->color);
 
 	while ((p-params) < params_len && (*p == ' ' || *p == '\t')) p++;
 
-	font->oblique = !strncmp(p, "oblique", 7);
+	while ((p-params) < params_len) {
+		if (!strncmp(p, "oblique", 7)) {
+			font->oblique = true;
+			p += 7;
+		}
+		else if (!strncmp(p, "bold", 4)) {
+			font->bold = true;
+			p += 4;
+		}
+		p++;
+	}
 }
 
 // If size >= 1.0, then size is a percentage of a screen dimension.

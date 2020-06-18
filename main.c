@@ -5,28 +5,32 @@
 
 #define SCREEN        0
 
-bool render_glyphs(Font_Renders *renders, Screen_Info *dimensions, Settings *config) {
+bool render_glyphs(Glyph *renders, Screen_Info *dimensions, Settings *config) {
+	bool oblique = config->results_font.oblique;
+	bool bold = config->results_font.bold;
+
+	u32 color = config->back_color;
+	for (int i = 0; i < 8; i++) {
+		if (i == 4)
+			color = config->selected_color;
+
+		config->results_font.oblique = oblique ^ (i & 1);
+		config->results_font.bold = bold ^ ((i >> 1) & 1);
+
+		if (!render_font(
+			dimensions,
+			&config->results_font,
+			color,
+			&renders[i * N_CHARS]
+		))
+			return false;
+	}
+
 	if (!render_font(
 		dimensions,
 		&config->search_font,
 		config->back_color,
-		renders->search_glyphs
-	))
-		return false;
-
-	if (!render_font(
-		dimensions,
-		&config->results_font,
-		config->back_color,
-		renders->results_glyphs
-	))
-		return false;
-
-	if (!render_font(
-		dimensions,
-		&config->results_font,
-		config->selected_color,
-		renders->sel_glyphs
+		&renders[BAR_OFFSET]
 	))
 		return false;
 
@@ -34,7 +38,7 @@ bool render_glyphs(Font_Renders *renders, Screen_Info *dimensions, Settings *con
 		dimensions,
 		&config->error_font,
 		config->back_color,
-		renders->error_glyphs
+		&renders[ERR_OFFSET]
 	);
 }
 
@@ -136,13 +140,8 @@ int main(int argc, char **argv) {
 	if (!open_font(config->font_path))
 		return 4;
 
-	Glyph search_glyphs[N_CHARS] = {0};
-	Glyph results_glyphs[N_CHARS] = {0};
-	Glyph sel_glyphs[N_CHARS] = {0};
-	Glyph error_glyphs[N_CHARS] = {0};
-
-	Font_Renders renders = {search_glyphs, results_glyphs, sel_glyphs, error_glyphs};
-	render_glyphs(&renders, &dimensions, config);
+	Glyph *renders = malloc(N_RENDERS * sizeof(Glyph));
+	render_glyphs(renders, &dimensions, config);
 
 	close_font();
 
@@ -152,7 +151,7 @@ int main(int argc, char **argv) {
 	char *command = NULL;
 
 	while (!command) {
-		int res = run_gui(config, &dimensions, &renders, textbox, TEXTBOX_LEN, error_msg);
+		int res = run_gui(config, &dimensions, renders, textbox, TEXTBOX_LEN, error_msg);
 		if (res == STATUS_EXIT)
 			break;
 
@@ -165,5 +164,6 @@ int main(int argc, char **argv) {
 	if (command)
 		system(command);
 
+	free(renders);
 	return 0;
 }

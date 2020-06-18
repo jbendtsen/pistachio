@@ -8,15 +8,6 @@
 
 #define POOL_SIZE 1024 * 1024
 
-struct _Listing {
-	char *name;
-	struct _Listing *next;
-	char *first;
-	int n_entries;
-};
-
-typedef struct _Listing Listing;
-
 Listing *listings = NULL;
 Listing **list_head = NULL;
 
@@ -27,26 +18,77 @@ void init_directory_arena() {
 	list_head = &listings;
 }
 
-char *list_directory(char *directory, int len, int *n_entries) {
+Listing *current = NULL;
+
+static int compare_entries(const void *p1, const void *p2) {
+	Listing *l = current;
+	int idx1 = *(int*)p1;
+	int idx2 = *(int*)p2;
+
+	int mode1 = l->stats[idx1].st_mode & S_IFDIR;
+	int mode2 = l->stats[idx2].st_mode & S_IFDIR;
+
+	if (mode1 && !mode2)
+		return -1;
+	if (!mode1 && mode2)
+		return 1;
+
+	return strcmp(l->table[idx1], l->table[idx2]);
+}
+
+void sort_entries(Listing *l, char *path) {
+	if (arena.idx % sizeof(char*))
+		allocate(&arena, sizeof(char*) - (arena.idx % sizeof(char*)));
+
+	l->index = (int*)allocate(&arena, l->n_entries * sizeof(int));
+	l->index[0] = 0;
+
+	l->table = (char**)allocate(&arena, l->n_entries * sizeof(char*));
+	l->table[0] = l->first;
+
+	int path_len = strlen(path);
+	strcpy(&path[path_len++], "/");
+
+	l->stats = (struct stat*)allocate(&arena, l->n_entries * sizeof(struct stat));
+	strcpy(&path[path_len], l->table[0]);
+	stat(path, &l->stats[0]);
+
+	for (int i = 1; i < l->n_entries; i++) {
+		l->index[i] = i;
+
+		int sz = strlen(l->table[i-1]) + 1;
+		l->table[i] = &l->table[i-1][sz];
+
+		strcpy(&path[path_len], l->table[i]);
+		if (lstat(path, &l->stats[i]) != 0)
+			memset(&l->stats[i], 0, sizeof(struct stat));
+	}
+
+	current = l;
+	qsort(l->index, l->n_entries, sizeof(int), compare_entries);
+}
+
+bool list_directory(char *directory, int len, Listing *info) {
 	if (len < 0)
 		len = strlen(directory);
 
 	if (listings) {
 		Listing *l = listings;
 		while (l) {
-			if (l->name && !strcmp(directory, l->name)) {
-				*n_entries = l->n_entries;
-				return l->first;
+			if (l->name && !strncmp(directory, l->name, len)) {
+				memcpy(info, l, sizeof(Listing));
+				return true;
 			}
 			l = l->next;
 		}
 	}
 
 	DIR *d = NULL;
+	char path[4096];
+
 	if (directory[0] == '~') {
 		char *home = get_home_directory();
 		int home_len = strlen(home);
-		char path[home_len + len + 1];
 
 		strcpy(path, home);
 		strncpy(&path[home_len], &directory[1], len);
@@ -55,15 +97,13 @@ char *list_directory(char *directory, int len, int *n_entries) {
 		d = opendir(path);
 	}
 	else {
-		char path[len + 1];
 		strncpy(path, directory, len);
 		path[len] = 0;
-
-		d = opendir(path);
 	}
 
+	d = opendir(path);
 	if (!d)
-		return NULL;
+		return false;
 
 	Listing *l = (Listing*)allocate(&arena, sizeof(Listing));
 	*list_head = l;
@@ -121,8 +161,11 @@ char *list_directory(char *directory, int len, int *n_entries) {
 	closedir(d);
 	arena.allow_overflow = true;
 
-	*n_entries = l->n_entries;
-	return l->first;
+	if (l->n_entries > 0)
+		sort_entries(l, path);
+
+	memcpy(info, l, sizeof(Listing));
+	return true;
 }
 
 char *home_dir = NULL;
@@ -182,13 +225,12 @@ bool find_program(char *name, char **error_str) {
 		next = p + 1;
 
 		int len = p - path;
-		int n_results = 0;
-		char *results = list_directory(path, len, &n_results);
+		Listing list;
+		list_directory(path, len, &list);
 
 		bool found = false;
-		char *str = results;
-		for (int i = 0; i < n_results; i++, str += strlen(str) + 1) {
-			if (!strcmp(str, name)) {
+		for (int i = 0; i < list.n_entries; i++) {
+			if (!strcmp(list.table[i], name)) {
 				found = true;
 				break;
 			}

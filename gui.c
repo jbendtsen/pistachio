@@ -24,7 +24,7 @@ typedef struct {
 } Draw_Info;
 
 typedef struct {
-	char **menu;
+	int *menu;
 	int n_items;
 	int selected;
 	int top;
@@ -62,13 +62,6 @@ void make_32bpp_ximage(Display *dpy, Visual *visual, u8 *data, int w, int h, XIm
 	image->obdata = NULL;
 
 	XInitImage(image);
-}
-
-void make_glyph_ximages(Visual *visual, Glyph *glyphs, XImage *images) {
-	for (int i = 0; i < N_CHARS; i++) {
-		if (glyphs[i].data)
-			make_32bpp_ximage(display, visual, glyphs[i].data, glyphs[i].img_w, glyphs[i].img_h, &images[i]);
-	}
 }
 
 void create_window(Settings *config, Screen_Info *screen_info, Draw_Info *draw_ctx) {
@@ -136,22 +129,22 @@ void skip_taskbar(Display *dpy, Window window, Window root) {
 	);
 }
 
-void draw_string(char *text, int length, int *cursor, int x, int y, Draw_Info *draw_ctx, Glyph *glyphs, XImage *chars) {
+void draw_string(char *text, int length, int offset, int *cursor, int x, int y, Draw_Info *draw_ctx, Glyph *glyphs) {
 	if (length < 1)
 		length = strlen(text);
 
-	int caret_y1 = y - FONT_HEIGHT(glyphs) * ABOVE_CURSOR_RATIO;
-	int caret_y2 = y + FONT_HEIGHT(glyphs) * BELOW_CURSOR_RATIO;
+	int caret_y1 = y - FONT_HEIGHT(glyphs[0]) * ABOVE_CURSOR_RATIO;
+	int caret_y2 = y + FONT_HEIGHT(glyphs[0]) * BELOW_CURSOR_RATIO;
 
 	if (text) {
-		for (int i = 0; i < length && x < draw_ctx->window_w - BORDER_PX; i++) {
+		for (int i = offset; i < length && x < draw_ctx->window_w - BORDER_PX; i++) {
 			int idx = glyph_indexof(text[i]);
 			if (idx < 0)
 				continue;
 
 			if (glyphs[idx].data)
 				XPutImage(
-					display, draw_ctx->window, draw_ctx->gc, &chars[idx],
+					display, draw_ctx->window, draw_ctx->gc, (XImage*)&glyphs[idx].ximage,
 					0, 0,
 					x + glyphs[idx].left, y - glyphs[idx].top,
 					glyphs[idx].img_w, glyphs[idx].img_h
@@ -160,7 +153,7 @@ void draw_string(char *text, int length, int *cursor, int x, int y, Draw_Info *d
 			if (cursor && *cursor == i)
 				XDrawLine(display, draw_ctx->window, draw_ctx->gc, x, caret_y1, x, caret_y2);
 
-			x += FONT_WIDTH(glyphs);
+			x += FONT_WIDTH(glyphs[0]);
 		}
 	}
 
@@ -168,14 +161,23 @@ void draw_string(char *text, int length, int *cursor, int x, int y, Draw_Info *d
 		XDrawLine(display, draw_ctx->window, draw_ctx->gc, x, caret_y1, x, caret_y2);
 }
 
-void draw_menu(Menu_View *view, Settings *config, Font_Renders *renders, Draw_Info *draw_ctx, int y) {
-	int results_font_h = FONT_HEIGHT(renders->results_glyphs);
+void draw_menu(Menu_View *view, Listing *list, Settings *config, Glyph *renders, Draw_Info *draw_ctx, int y) {
+	int results_font_h = FONT_HEIGHT(renders[RES_OFFSET]);
 	int sel_offset = results_font_h * BELOW_CURSOR_RATIO;
 
 	view->visible = (draw_ctx->window_h - BORDER_PX - y) / results_font_h + 1;
 
 	for (int i = view->top; i < view->top + view->visible && i < view->n_items; i++) {
-		int len = strlen(view->menu[i]);
+		int idx = view->menu[i];
+		char *entry = list->table[idx];
+		int len = strlen(entry);
+
+		int offset = 0;
+		if (list->stats[idx].st_mode & S_IFDIR)
+			offset = 2 * N_CHARS;
+		if (S_ISLNK(list->stats[idx].st_mode))
+			offset += N_CHARS;
+
 		if (i == view->selected) {
 			XSetForeground(display, draw_ctx->gc, config->selected_color);
 			XFillRectangle(
@@ -184,16 +186,16 @@ void draw_menu(Menu_View *view, Settings *config, Font_Renders *renders, Draw_In
 				draw_ctx->window_w - BORDER_PX, results_font_h
 			);
 			XSetForeground(display, draw_ctx->gc, config->caret_color);
-			draw_string(view->menu[i], len, NULL, BORDER_PX, y, draw_ctx, renders->sel_glyphs, sel_chars);
+			draw_string(entry, len, 0, NULL, BORDER_PX, y, draw_ctx, &renders[SEL_OFFSET + offset]);
 		}
 		else
-			draw_string(view->menu[i], len, NULL, BORDER_PX, y, draw_ctx, renders->results_glyphs, results_chars);
+			draw_string(entry, len, 0, NULL, BORDER_PX, y, draw_ctx, &renders[RES_OFFSET + offset]);
 
 		y += results_font_h;
 	}
 }
 
-int run_gui(Settings *config, Screen_Info *screen_info, Font_Renders *renders, char *textbox, int textbox_len, char *error_msg) {
+int run_gui(Settings *config, Screen_Info *screen_info, Glyph *renders, char *textbox, int textbox_len, char *error_msg) {
 	if (error_msg) {
 		XSync(display, true);
 		XFlush(display);
@@ -212,10 +214,14 @@ int run_gui(Settings *config, Screen_Info *screen_info, Font_Renders *renders, c
 	XSetForeground(display, draw_ctx.gc, config->caret_color);
 	XSetBackground(display, draw_ctx.gc, config->back_color);
 
-	make_glyph_ximages(draw_ctx.visual, renders->search_glyphs, search_chars);
-	make_glyph_ximages(draw_ctx.visual, renders->results_glyphs, results_chars);
-	make_glyph_ximages(draw_ctx.visual, renders->sel_glyphs, sel_chars);
-	make_glyph_ximages(draw_ctx.visual, renders->error_glyphs, error_chars);
+	for (int i = 0; i < N_RENDERS; i++) {
+		if (renders[i].data)
+			make_32bpp_ximage(
+				display, draw_ctx.visual,
+				renders[i].data, renders[i].img_w, renders[i].img_h,
+				(XImage*)&renders[i].ximage
+			);
+	}
 
 	Atom delete_msg = XInternAtom(display, "WM_DELETE_WINDOW", false);
 	XSetWMProtocols(display, draw_ctx.window, &delete_msg, 1);
@@ -226,13 +232,15 @@ int run_gui(Settings *config, Screen_Info *screen_info, Font_Renders *renders, c
 
 	int cursor = 0;
 
-	char *menu[MENU_SIZE] = {NULL};
+	int menu[MENU_SIZE] = {0};
 	Menu_View view = {
 		.menu = menu,
 		.n_items = 0,
 		.selected = -1,
 		.top = 0
 	};
+
+	Listing listing;
 
 	char key_buf[10] = {0};
 	bool modifier_held = false;
@@ -248,18 +256,19 @@ int run_gui(Settings *config, Screen_Info *screen_info, Font_Renders *renders, c
 			case Expose:
 			{
 				int x = BORDER_PX;
-				int y = FONT_HEIGHT(renders->search_glyphs) * VERT_GAP_RATIO;
-				int caret_y1 = y - FONT_HEIGHT(renders->search_glyphs) * ABOVE_CURSOR_RATIO;
-				int caret_y2 = y + FONT_HEIGHT(renders->search_glyphs) * BELOW_CURSOR_RATIO;
+				int font_h = FONT_HEIGHT(renders[BAR_OFFSET]);
+				int y = font_h * VERT_GAP_RATIO;
+				int caret_y1 = y - font_h * ABOVE_CURSOR_RATIO;
+				int caret_y2 = y + font_h * BELOW_CURSOR_RATIO;
 				XDrawLine(display, draw_ctx.window, draw_ctx.gc, x, caret_y1, x, caret_y2);
 
 				if (error_msg)
 					draw_string(
 						error_msg, strlen(error_msg),
-						NULL,
+						0, NULL,
 						BORDER_PX, draw_ctx.window_h - BORDER_PX,
 						&draw_ctx,
-						renders->error_glyphs, error_chars
+						&renders[ERR_OFFSET]
 					);
 
 				break;
@@ -288,6 +297,9 @@ int run_gui(Settings *config, Screen_Info *screen_info, Font_Renders *renders, c
 				if (IsModifierKey(key))
 					modifier_held = true;
 
+				int up_delta = 0;
+				int down_delta = 0;
+
 				switch (key) {
 					case XK_Escape:
 						done = true;
@@ -301,15 +313,17 @@ int run_gui(Settings *config, Screen_Info *screen_info, Font_Renders *renders, c
 						break;
 
 					case XK_Up:
-						view.selected = view.selected > -1 ? view.selected-1 : -1;
-						if (view.selected >= 0 && view.selected < view.top)
-							view.top = view.selected;
+						up_delta = 1;
+						break;
+					case XK_Page_Up:
+						up_delta = view.visible;
 						break;
 
 					case XK_Down:
-						view.selected = view.selected < view.n_items-1 ? view.selected+1 : view.n_items-1;
-						if (view.selected > view.top + view.visible-1)
-							view.top = view.selected - (view.visible-1);
+						down_delta = 1;
+						break;
+					case XK_Page_Down:
+						down_delta = view.visible;
 						break;
 
 					case XK_Left:
@@ -348,6 +362,19 @@ int run_gui(Settings *config, Screen_Info *screen_info, Font_Renders *renders, c
 				if (done)
 					break;
 
+				if (up_delta) {
+					int pos = view.selected - up_delta;
+					view.selected = pos > -1 ? pos : -1;
+					if (view.selected >= 0 && view.selected < view.top)
+						view.top = view.selected;
+				}
+				else if (down_delta) {
+					int pos = view.selected + down_delta;
+					view.selected = pos < view.n_items-1 ? pos : view.n_items-1;
+					if (view.selected > view.top + view.visible-1)
+						view.top = view.selected - (view.visible-1);
+				}
+
 				int add_len = 0;
 				if (len < textbox_len - input_len)
 					add_len = insert_chars(textbox, len, key_buf, input_len, cursor);
@@ -358,20 +385,20 @@ int run_gui(Settings *config, Screen_Info *screen_info, Font_Renders *renders, c
 					cursor += add_len;
 				}
 
-				int n_results = 0, trailing = 0;
-				char *results = NULL;
 				char *word = NULL;
 				int word_len = 0;
-				bool is_command = enumerate_directory(textbox, cursor, &word, &word_len, &trailing, &results, &n_results);
+				int trailing = 0;
+				memset(&listing, 0, sizeof(Listing));
+				bool is_command = enumerate_directory(textbox, cursor, &word, &word_len, &trailing, &listing);
 
 				char *match = NULL;
 				int match_len = 0;
 
 				if (key == XK_Tab && view.selected < 0) {
-					match = find_completeable_span(word, word_len, results, n_results, trailing, &match_len);
+					match = find_completeable_span(&listing, word, word_len, trailing, &match_len);
 				}
-				else if (view.selected >= 0 && (key == XK_Tab || key == XK_Right || key == XK_Return)) {
-					match = menu[view.selected];
+				else if (view.selected >= 0 && (key == XK_Tab || key == XK_Right || key == XK_Return) && listing.n_entries > 0) {
+					match = listing.table[view.menu[view.selected]];
 					match_len = strlen(match);
 				}
 
@@ -386,7 +413,7 @@ int run_gui(Settings *config, Screen_Info *screen_info, Font_Renders *renders, c
 					}
 
 					if (!trailing)
-						enumerate_directory(textbox, cursor, &word, &word_len, NULL, &results, &n_results);
+						enumerate_directory(textbox, cursor, &word, &word_len, NULL, &listing);
 
 					cursor = &word[word_len] - textbox;
 					view.selected = -1;
@@ -394,24 +421,35 @@ int run_gui(Settings *config, Screen_Info *screen_info, Font_Renders *renders, c
 				}
 
 				view.n_items = 0;
-				bool show_menu = results && n_results && !(is_command && trailing == 0);
-				if (show_menu) {
-					char *str = results;
-					for (int i = 0; i < n_results && view.n_items < MENU_SIZE; i++, str += strlen(str) + 1) {
-						if (!difference_ignoring_backslashes(str, word, word_len, trailing))
-							view.menu[view.n_items++] = str;
+				bool show_menu = listing.n_entries && !(is_command && trailing == 0);
+
+				if (trailing == 0 && listing.n_entries > 0) {
+					view.menu = listing.index;
+					view.n_items = listing.n_entries;
+				}
+				else {
+					view.menu = menu;
+					if (show_menu) {
+						for (int i = 0; i < listing.n_entries && view.n_items < MENU_SIZE; i++) {
+							int idx = listing.index[i];
+							if (!difference_ignoring_backslashes(listing.table[idx], word, word_len, trailing))
+								view.menu[view.n_items++] = idx;
+						}
 					}
 				}
 
 				XClearArea(display, draw_ctx.window, 0, 0, draw_ctx.window_w, draw_ctx.window_h, false);
 
-				int search_font_h = FONT_HEIGHT(renders->search_glyphs);
+				int search_font_h = FONT_HEIGHT(renders[BAR_OFFSET]);
 				int gap = search_font_h * VERT_GAP_RATIO;
 
-				draw_string(textbox, -1, &cursor, BORDER_PX, gap, &draw_ctx, renders->search_glyphs, search_chars);
+				int max_chars = (draw_ctx.window_w - BORDER_PX) / FONT_WIDTH(renders[BAR_OFFSET]);
+				int offset = (cursor >= max_chars) ? cursor - (max_chars-1) : 0;
+
+				draw_string(textbox, -1, offset, &cursor, BORDER_PX, gap, &draw_ctx, &renders[BAR_OFFSET]);
 
 				if (show_menu)
-					draw_menu(&view, config, renders, &draw_ctx, gap * 2);
+					draw_menu(&view, &listing, config, renders, &draw_ctx, gap * 2);
 
 				break;
 			}

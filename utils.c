@@ -161,7 +161,7 @@ bool difference_ignoring_backslashes(char *name, char *word, int word_len, int t
 	return false;
 }
 
-bool enumerate_directory(char *textbox, int cursor, char **word, int *word_length, int *search_length, char **result, int *n_entries) {
+bool enumerate_directory(char *textbox, int cursor, char **word, int *word_length, int *search_length, Listing *list) {
 	int input_len = strlen(textbox);
 	if (!input_len || textbox[input_len-1] == ' ')
 		return true;
@@ -194,7 +194,7 @@ bool enumerate_directory(char *textbox, int cursor, char **word, int *word_lengt
 		search_len = word_len;
 	}
 
-	*result = list_directory(directory, -1, n_entries);
+	list_directory(directory, -1, list);
 	if (word)
 		*word = &textbox[first];
 	if (word_length)
@@ -205,13 +205,13 @@ bool enumerate_directory(char *textbox, int cursor, char **word, int *word_lengt
 	return is_command;
 }
 
-char *find_completeable_span(char *word, int word_len, char *results, int n_results, int trailing, int *match_length) {
+char *find_completeable_span(Listing *listing, char *word, int word_len, int trailing, int *match_length) {
 	char *match = NULL;
 	int match_len = 0;
 
 	if (trailing) {
-		char *str = results;
-		for (int i = 0; i < n_results; i++, str += strlen(str) + 1) {
+		for (int i = 0; i < listing->n_entries; i++) {
+			char *str = listing->table[i];
 			if (difference_ignoring_backslashes(str, word, word_len, trailing))
 				continue;
 
@@ -226,8 +226,8 @@ char *find_completeable_span(char *word, int word_len, char *results, int n_resu
 			match_len = j;
 		}
 	}
-	else if (n_results == 1) {
-		match = results;
+	else if (listing->n_entries == 1) {
+		match = listing->first;
 		match_len = strlen(match);
 	}
 

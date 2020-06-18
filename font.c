@@ -1,5 +1,6 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#include FT_BITMAP_H
 
 #include "pistachio.h"
 
@@ -55,6 +56,11 @@ bool render_font(Screen_Info *info, Font_Attrs *attrs, u32 background, Glyph *ch
 	for (int c = MIN_CHAR; c <= MAX_CHAR; c++) {
 		FT_Load_Char(face, c, FT_LOAD_RENDER);
 		FT_Bitmap *bmp = &face->glyph->bitmap;
+
+		if (attrs->bold) {
+			FT_GlyphSlot_Own_Bitmap(face->glyph);
+			FT_Bitmap_Embolden(library, bmp, 32, 32);
+		}
 
 		Glyph *gl = &chars[c - MIN_CHAR];
 		*gl = (Glyph) {

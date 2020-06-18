@@ -17,7 +17,7 @@ Default = `/usr/share/fonts/noto/NotoSansMono-Regular.ttf`
 On most systems, pistachio will likely not find the default font.
 On Ubuntu, for example, you might place `font-path /usr/share/fonts/truetype/ubuntu/UbuntuMono-R.ttf` in the configuration file.
 
-### `search-font <size> [color] [style]`
+### `search-font <size> [color] [style...]`
 Applies the following settings to the font used for the search bar:
 - `<size>`
 	- Size in points. Integers and decimal fractions are allowed, eg. 15 or 13.5.
@@ -25,12 +25,12 @@ Applies the following settings to the font used for the search bar:
 	- Optional. Represented as a 32-bit (8 digit) hexadecimal number in the format ARGB. The top two digits refer to Alpha (transparency), the next two refer to Red, then Green, then Blue.
 	- Note that the `#` symbol is the comment symbol, so placing this in front of a colour will **prevent the colour from being used**.
 - `[style]`
-	- Optional. The only value currently supported is `oblique`, better known as *italics*.
+	- Optional. Supported values or `oblique` (better known as *italics*) and `bold`.
 
-### `results-font <size> [color] [style]`
+### `results-font <size> [color] [style...]`
 Applies these settings to the font used for displaying search results.
 
-### `error-font <size> [color] [style]`
+### `error-font <size> [color] [style...]`
 Applies these settings to the font used for displaying error messages.
 
 ### `back-color <color>`

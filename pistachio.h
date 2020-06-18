@@ -7,14 +7,22 @@
 #include <stdbool.h>
 #include <sys/stat.h>
 
-#define FONT_WIDTH(glyphs) (int)(glyphs[0].box_w + 0.5)
-#define FONT_HEIGHT(glyphs) (int)(glyphs[0].box_h + 0.5)
+#define FONT_WIDTH(glyph) (int)(glyph.box_w + 0.5)
+#define FONT_HEIGHT(glyph) (int)(glyph.box_h + 0.5)
 
 #define MIN_CHAR ' '
 #define MAX_CHAR '~'
 #define N_CHARS  (MAX_CHAR - MIN_CHAR + 1)
 
+#define RES_OFFSET 0
+#define SEL_OFFSET (4 * N_CHARS)
+#define BAR_OFFSET (8 * N_CHARS)
+#define ERR_OFFSET (9 * N_CHARS)
+#define N_RENDERS (10 * N_CHARS)
+
 #define BINARIES_DIR  "/usr/bin"
+
+#define SIZEOF_XIMAGE 136
 
 #define STATUS_EXIT     0
 #define STATUS_COMMAND  1
@@ -30,6 +38,17 @@ typedef struct {
 	bool initialized;
 } Arena;
 
+struct listing_struct {
+	char *name;
+	struct listing_struct *next;
+	char *first;
+	int *index;
+	char **table;
+	struct stat *stats;
+	int n_entries;
+};
+typedef struct listing_struct Listing;
+
 struct program_struct {
 	char *command;
 	char *extensions;
@@ -43,6 +62,7 @@ typedef struct {
 	float size;
 	u32 color;
 	bool oblique;
+	bool bold;
 } Font_Attrs;
 
 typedef struct {
@@ -74,14 +94,8 @@ typedef struct {
 	int pitch;
 	float box_w, box_h;
 	int left, top;
+	char ximage[SIZEOF_XIMAGE];
 } Glyph;
-
-typedef struct {
-	Glyph *search_glyphs;
-	Glyph *results_glyphs;
-	Glyph *sel_glyphs;
-	Glyph *error_glyphs;
-} Font_Renders;
 
 typedef struct {
 	float a, r, g, b;
@@ -99,7 +113,7 @@ void save_config(char *path);
 
 // directory.c
 void init_directory_arena(void);
-char *list_directory(char *directory, int len, int *n_entries);
+bool list_directory(char *directory, int len, Listing *info);
 char *get_home_directory(void);
 char *get_desugared_path(char *str, int len);
 bool find_program(char *name, char **error_str);
@@ -113,7 +127,7 @@ void close_font(void);
 // gui.c
 bool open_display(int screen_idx, Screen_Info *screen_info);
 void close_display(void);
-int run_gui(Settings *config, Screen_Info *screen_info, Font_Renders *renders, char *textbox, int textbox_len, char *error_msg);
+int run_gui(Settings *config, Screen_Info *screen_info, Glyph *renders, char *textbox, int textbox_len, char *error_msg);
 
 // utils.c
 void make_argb(u32 color, ARGB *argb);
@@ -125,8 +139,8 @@ int escape_spaces(char *str, int span);
 int find_next_word(char *str, int start, int end);
 void prepend_word(char *word, char *sentence);
 bool difference_ignoring_backslashes(char *str, char *word, int word_len, int trailing);
-bool enumerate_directory(char *textbox, int cursor, char **word, int *word_length, int *search_length, char **result, int *n_entries);
-char *find_completeable_span(char *word, int word_len, char *results, int n_results, int trailing, int *match_length);
+bool enumerate_directory(char *textbox, int cursor, char **word, int *word_length, int *search_length, Listing *list);
+char *find_completeable_span(Listing *listing, char *word, int word_len, int trailing, int *match_length);
 int complete(char *word, int *word_length, char *match, int match_len, int trailing, bool folder_completion);
 
 #endif
