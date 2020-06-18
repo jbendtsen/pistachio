@@ -351,10 +351,6 @@ int run_gui(Settings *config, Screen_Info *screen_info, Glyph *renders, char *te
 						if (key == XK_Delete)
 							remove_char(textbox, len, cursor + 1);
 
-						if (modifier_held) {
-							memset(textbox, 0, textbox_len);
-							cursor = len = 0;
-						}
 						view.top = 0;
 						view.selected = -1;
 						break;
@@ -376,8 +372,19 @@ int run_gui(Settings *config, Screen_Info *screen_info, Glyph *renders, char *te
 				}
 
 				int add_len = 0;
+
+				// shift+tab
+				if (key == XK_ISO_Left_Tab) {
+					int idx = len - 1;
+					do {
+						textbox[idx] = 0;
+						idx--;
+					} while (idx >= 0 && textbox[idx] != '/');
+					add_len = idx - (len-1);
+				}
+
 				if (len < textbox_len - input_len)
-					add_len = insert_chars(textbox, len, key_buf, input_len, cursor);
+					add_len += insert_chars(textbox, len, key_buf, input_len, cursor);
 
 				if (add_len) {
 					view.top = 0;
