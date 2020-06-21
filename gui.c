@@ -173,9 +173,10 @@ void draw_menu(Menu_View *view, Listing *list, Settings *config, Glyph *renders,
 		int len = strlen(entry);
 
 		int offset = 0;
-		if (list->stats[idx].st_mode & S_IFDIR)
+		int type = list->stats[idx].st_mode & S_IFMT;
+		if (type == S_IFDIR)
 			offset = 2 * N_CHARS;
-		if (S_ISLNK(list->stats[idx].st_mode))
+		if (type == S_IFLNK)
 			offset += N_CHARS;
 
 		if (i == view->selected) {
@@ -243,6 +244,7 @@ int run_gui(Settings *config, Screen_Info *screen_info, Glyph *renders, char *te
 	Listing listing;
 
 	char key_buf[10] = {0};
+	bool modifier_held = false;
 
 	bool run_command = false;
 	bool done = false;
@@ -283,6 +285,8 @@ int run_gui(Settings *config, Screen_Info *screen_info, Glyph *renders, char *te
 				break;
 
 			case KeyRelease:
+				if (IsModifierKey(XLookupKeysym((XKeyEvent*)&event, 0)))
+					modifier_held = false;
 				break;
 
 			case KeyPress:
@@ -291,6 +295,8 @@ int run_gui(Settings *config, Screen_Info *screen_info, Glyph *renders, char *te
 
 				KeySym key;
 				int input_len = XLookupString((XKeyEvent*)&event, key_buf, 10, &key, 0);
+				if (IsModifierKey(key))
+					modifier_held = true;
 
 				int up_delta = 0;
 				int down_delta = 0;
@@ -370,8 +376,8 @@ int run_gui(Settings *config, Screen_Info *screen_info, Glyph *renders, char *te
 
 				int add_len = 0;
 
-				// shift+tab
-				if (key == XK_ISO_Left_Tab && len > 0) {
+				// shift+tab or modifier+left
+				if (len > 0 && (key == XK_ISO_Left_Tab || (key == XK_Left && modifier_held))) {
 					int idx = len - 1;
 					do {
 						textbox[idx] = 0;

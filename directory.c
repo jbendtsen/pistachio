@@ -68,51 +68,7 @@ void sort_entries(Listing *l, char *path) {
 	qsort(l->index, l->n_entries, sizeof(int), compare_entries);
 }
 
-bool list_directory(char *directory, int len, Listing *info) {
-	if (len < 0)
-		len = strlen(directory);
-
-	if (listings) {
-		Listing *l = listings;
-		while (l) {
-			if (l->name && !strncmp(directory, l->name, len)) {
-				memcpy(info, l, sizeof(Listing));
-				return true;
-			}
-			l = l->next;
-		}
-	}
-
-	DIR *d = NULL;
-	char path[4096];
-
-	if (directory[0] == '~') {
-		char *home = get_home_directory();
-		int home_len = strlen(home);
-
-		strcpy(path, home);
-		strncpy(&path[home_len], &directory[1], len);
-		path[home_len + len] = 0;
-
-		d = opendir(path);
-	}
-	else {
-		strncpy(path, directory, len);
-		path[len] = 0;
-	}
-
-	d = opendir(path);
-	if (!d)
-		return false;
-
-	Listing *l = (Listing*)allocate(&arena, sizeof(Listing));
-	*list_head = l;
-	list_head = &l->next;
-
-	memset(l, 0, sizeof(Listing));
-	l->name = allocate(&arena, len + 1);
-	memcpy(l->name, directory, len + 1);
-
+void get_directory_entries(DIR *d, Listing *l) {
 	// This codebase depends on directory entries being laid out contiguously in memory,
 	//  so we temporarily disable the ability for this arena to spill over to another pool.
 	arena.allow_overflow = false;
@@ -158,8 +114,59 @@ bool list_directory(char *directory, int len, Listing *info) {
 		prev = str;
 	}
 
-	closedir(d);
 	arena.allow_overflow = true;
+}
+
+bool list_directory(char *directory, int len, Listing *info) {
+	if (len < 0)
+		len = strlen(directory);
+
+	if (listings) {
+		Listing *l = listings;
+		while (l) {
+			if (l->name && !strncmp(directory, l->name, len)) {
+				memcpy(info, l, sizeof(Listing));
+				return true;
+			}
+			l = l->next;
+		}
+	}
+
+	DIR *d = NULL;
+	char path[4096];
+
+	if (directory[0] == '~') {
+		char *home = get_home_directory();
+		int home_len = strlen(home);
+
+		strcpy(path, home);
+		strncpy(&path[home_len], &directory[1], len);
+		path[home_len + len] = 0;
+
+		d = opendir(path);
+	}
+	else {
+		strncpy(path, directory, len);
+		path[len] = 0;
+	}
+
+	d = opendir(path);
+	if (!d) {
+		memset(info, 0, sizeof(Listing));
+		return false;
+	}
+
+	Listing *l = (Listing*)allocate(&arena, sizeof(Listing));
+	*list_head = l;
+	list_head = &l->next;
+
+	memset(l, 0, sizeof(Listing));
+	l->name = allocate(&arena, len + 1);
+	memcpy(l->name, directory, len + 1);
+
+	get_directory_entries(d, l);
+
+	closedir(d);
 
 	if (l->n_entries > 0)
 		sort_entries(l, path);
