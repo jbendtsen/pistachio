@@ -386,8 +386,16 @@ int run_gui(Settings *config, Screen_Info *screen_info, Glyph *renders, char *te
 					add_len = idx - (len-1);
 				}
 
-				if (len < textbox_len - input_len)
+				if (len < textbox_len - input_len) {
+					if (key_buf[0] == '~' &&
+						(cursor == 0 || (cursor >= 2 && textbox[cursor-1] == ' ' && textbox[cursor-2] != '\\'))
+					) {
+						key_buf[1] = '/';
+						input_len++;
+					}
+
 					add_len += insert_chars(textbox, len, key_buf, input_len, cursor);
+				}
 
 				if (add_len) {
 					view.top = 0;
