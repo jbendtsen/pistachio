@@ -87,7 +87,6 @@ char *parse_command(char *textbox, Settings *config, char *error, int error_len)
 			textbox[3] = '"';
 
 			prepend_word(config->terminal_program.command, textbox);
-			fprintf(stderr, textbox);
 		}
 	}
 	else {
