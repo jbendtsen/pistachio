@@ -51,7 +51,7 @@ char *parse_command(char *textbox, Settings *config, char *error, int error_len)
 	bool daemonize = true;
 
 	if (is_command) {
-		int name_len = second ? second - 1 : len;
+		int name_len = second ? second - 2 : len;
 		char name[name_len + 1];
 		memcpy(name, textbox, name_len);
 		name[name_len] = 0;
@@ -59,7 +59,8 @@ char *parse_command(char *textbox, Settings *config, char *error, int error_len)
 		char *msg;
 		if (!find_program(name, &msg)) {
 			bool is_exe = false;
-			FILE *f = fopen(name, "rb");
+			char *path = get_desugared_path(textbox, name_len);
+			FILE *f = fopen(path, "rb");
 			if (f) {
 				char magic[4];
 				fread(magic, 1, 4, f);
@@ -86,6 +87,7 @@ char *parse_command(char *textbox, Settings *config, char *error, int error_len)
 			textbox[3] = '"';
 
 			prepend_word(config->terminal_program.command, textbox);
+			fprintf(stderr, textbox);
 		}
 	}
 	else {

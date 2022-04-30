@@ -211,7 +211,8 @@ char *get_desugared_path(char *str, int len) {
 	char *path = allocate(&arena, len + home_len + 1);
 
 	if (home) strcpy(path, home);
-	strcpy(&path[home_len], &str[offset]);
+	memcpy(&path[home_len], &str[offset], len);
+	path[home_len + len] = 0;
 	remove_backslashes(path, -1);
 
 	return path;
