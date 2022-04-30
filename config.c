@@ -2,19 +2,19 @@
 
 #define CONFIG_FILE   "~/.config/pistachio/configuration"
 
-#define FONT_PATH        "/usr/share/fonts/noto/NotoSansMono-Regular.ttf"
-#define SEARCH_SIZE      16.0
-#define RESULTS_SIZE     12.5
-#define ERROR_SIZE       14.0
-#define FOREGROUND       0xfff8f8f8
-#define BACKGROUND       0xe8303030
-#define CARET            0xffe0e0e0
-#define SELECTED         0xf0608040
-#define ERROR_COLOR      0xf0ff8080
-#define WINDOW_WIDTH     0.4
-#define WINDOW_HEIGHT    0.3
-#define FOLDER_PROGRAM   "thunar"
-#define DEFAULT_PROGRAM  "xed"
+#define SEARCH_SIZE       16.0
+#define RESULTS_SIZE      12.5
+#define ERROR_SIZE        14.0
+#define FOREGROUND        0xfff8f8f8
+#define BACKGROUND        0xe8303030
+#define CARET             0xffe0e0e0
+#define SELECTED          0xf0608040
+#define ERROR_COLOR       0xf0ff8080
+#define WINDOW_WIDTH      0.4
+#define WINDOW_HEIGHT     0.3
+#define TERMINAL_PROGRAM  "xfce4-terminal"
+#define FOLDER_PROGRAM    "thunar"
+#define DEFAULT_PROGRAM   "xed"
 
 #define POOL_SIZE 16 * 1024
 
@@ -45,6 +45,13 @@ Settings config = {
 	.back_color      = BACKGROUND,
 	.caret_color     = CARET,
 	.selected_color  = SELECTED,
+	.terminal_program = {
+		FOLDER_PROGRAM,
+		NULL,
+		0,
+		false,
+		NULL
+	},
 	.folder_program = {
 		FOLDER_PROGRAM,
 		NULL,
@@ -71,6 +78,7 @@ char *command_list[] = {
 	"hl-color",
 	"window-width",
 	"window-height",
+	"terminal-command",
 	"folder-command",
 	"default-command",
 	"program",
@@ -303,23 +311,27 @@ void parse_config_line(char *line, int len, bool *daemonize) {
 			set_size(params, params_len, &config.window_h);
 			break;
 
-		case 9: // folder-command
+		case 9: // terminal-command
+			config.terminal_program.command = allocate_string(params, params_len);
+			config.terminal_program.daemonize = daemonize != NULL ? *daemonize : true;
+			break;
+		case 10: // folder-command
 			config.folder_program.command = allocate_string(params, params_len);
 			config.folder_program.daemonize = daemonize != NULL ? *daemonize : true;
 			break;
-		case 10: // default-command
+		case 11: // default-command
 			config.default_program.command = allocate_string(params, params_len);
 			config.default_program.daemonize = daemonize != NULL ? *daemonize : true;
 			break;
 
-		case 11: // program
+		case 12: // program
 			set_program(params, params_len, daemonize != NULL ? *daemonize : true);
 			break;
-		case 12: // command
+		case 13: // command
 			set_command(params, params_len, daemonize != NULL ? *daemonize : true);
 			break;
 
-		case 13: // nodaemon
+		case 14: // nodaemon
 		{
 			bool d = false;
 			parse_config_line(params, params_len, &d);
@@ -430,6 +442,7 @@ void save_config(char *cfg_path) {
 		"hl-color %s\n"
 		"window-width %g%%\n"
 		"window-height %g%%\n"
+		"terminal-program %s\n"
 		"folder-program %s\n"
 		"default-program %s\n",
 		config.font_path,
@@ -441,6 +454,7 @@ void save_config(char *cfg_path) {
 		&color_strs[5 * 9],
 		config.window_w * 100.0,
 		config.window_h * 100.0,
+		config.terminal_program.command,
 		config.folder_program.command,
 		config.default_program.command
 	);

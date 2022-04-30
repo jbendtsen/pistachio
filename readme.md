@@ -3,6 +3,11 @@
 
 ![example.png](example.png)
 
+Pistachio is an application launcher for Unix-based systems that employ the X11 window manager.
+It lets the user run any program in /usr/bin or launch any file with their associated program, as specified by the configuration (see below).
+When the user types into the window that appears at launch, suggestions that match the typed text appear.
+These suggestions can be navigated using the Up/Down arrow keys, and be selected to run using the Return key. 
+
 ## Configuration
 Upon launching pistachio, it looks for the configuration file `~/.config/pistachio/configuration`.
 If not found, it will create a new config file at that location with the default program options.
@@ -12,10 +17,10 @@ If not found, it will create a new config file at that location with the default
 ### `font-path <full path to font file>`
 Sets the font to be used.
 
-Default = `/usr/share/fonts/noto/NotoSansMono-Regular.ttf`
+The install script `install.sh` attempts to find the default monospace font using `fc-match`.
+If not found, it will set `/usr/share/fonts/noto/NotoSansMono-Regular.ttf` as the default font.
 
-On most systems, pistachio will likely not find the default font.
-On Ubuntu, for example, you might place `font-path /usr/share/fonts/truetype/ubuntu/UbuntuMono-R.ttf` in the configuration file.
+The `font-path` option lets the user change the font to one they prefer and have installed.
 
 ### `search-font <size> [color] [style...]`
 Applies the following settings to the font used for the search bar:

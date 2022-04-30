@@ -75,6 +75,7 @@ typedef struct {
 	u32 back_color;
 	u32 caret_color;
 	u32 selected_color;
+	Program terminal_program;
 	Program folder_program;
 	Program default_program;
 	Program *programs;

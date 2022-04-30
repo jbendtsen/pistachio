@@ -58,8 +58,34 @@ char *parse_command(char *textbox, Settings *config, char *error, int error_len)
 
 		char *msg;
 		if (!find_program(name, &msg)) {
-			snprintf(error, error_len, "%s%s", msg, name);
-			return NULL;
+			bool is_exe = false;
+			FILE *f = fopen(name, "rb");
+			if (f) {
+				char magic[4];
+				fread(magic, 1, 4, f);
+				is_exe =
+					((magic[0] == 0x7f && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F') ||
+					 (magic[0] == '#'  && magic[1] == '!' && magic[2] == '/'));
+			}
+			if (!is_exe) {
+				snprintf(error, error_len, "%s%s", msg, name);
+				return NULL;
+			}
+		}
+
+		if (name_len == 4 && (!memcmp(name, "sudo", 4) || !memcmp(name, "doas", 4))) {
+			// kind of risky!
+			// FIXME: pass in textbox size so that this can be done safely
+			textbox[len] = '"';
+			textbox[len+1] = 0;
+
+			memmove(&textbox[4], textbox, len+1);
+			textbox[0] = '-';
+			textbox[1] = 'e';
+			textbox[2] = ' ';
+			textbox[3] = '"';
+
+			prepend_word(config->terminal_program.command, textbox);
 		}
 	}
 	else {
@@ -96,11 +122,30 @@ char *parse_command(char *textbox, Settings *config, char *error, int error_len)
 
 				prog = prog->next;
 			}
-			if (!prog)
-				prog = &config->default_program;
 
-			prepend_word(prog->command, textbox);
-			daemonize = prog->daemonize;
+			if (!prog) {
+				bool is_exe = false;
+
+				if ((s.st_mode & S_IXUSR) && (s.st_mode & S_IRUSR)) {
+					char magic[4];
+					FILE *f = fopen(path, "rb");
+					fread(magic, 1, 4, f);
+					fclose(f);
+
+					is_exe =
+						((magic[0] == 0x7f && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F') ||
+						 (magic[0] == '#'  && magic[1] == '!' && magic[2] == '/'));
+				}
+
+				if (!is_exe) {
+					prog = &config->default_program;
+				}
+			}
+
+			if (prog) {
+				prepend_word(prog->command, textbox);
+				daemonize = prog->daemonize;
+			}
 		}
 	}
 
@@ -160,10 +205,10 @@ int main(int argc, char **argv) {
 	}
 
 	close_display();
+	free(renders);
 
 	if (command)
 		system(command);
 
-	free(renders);
 	return 0;
 }
