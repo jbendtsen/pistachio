@@ -208,6 +208,8 @@ char *get_desugared_path(char *str, int len) {
 		offset = 1;
 	}
 
+	len -= offset;
+
 	char *path = allocate(&arena, len + home_len + 1);
 
 	if (home) strcpy(path, home);

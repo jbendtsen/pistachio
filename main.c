@@ -51,7 +51,7 @@ char *parse_command(char *textbox, Settings *config, char *error, int error_len)
 	bool daemonize = true;
 
 	if (is_command) {
-		int name_len = second ? second - 2 : len;
+		int name_len = second ? second - 1 : len;
 		char name[name_len + 1];
 		memcpy(name, textbox, name_len);
 		name[name_len] = 0;
@@ -69,7 +69,7 @@ char *parse_command(char *textbox, Settings *config, char *error, int error_len)
 					 (magic[0] == '#'  && magic[1] == '!' && magic[2] == '/'));
 			}
 			if (!is_exe) {
-				snprintf(error, error_len, "%s%s", msg, name);
+				snprintf(error, error_len, "%s\"%s\"", msg, path);
 				return NULL;
 			}
 		}

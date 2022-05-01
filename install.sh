@@ -34,6 +34,6 @@ sudo cp pistachio /usr/bin
 
 if (( $? == 0 )); then
 	echo "Done!"
-	echo "You may wish to create a keyboard shortcut to /usr/bin/pistachio to quickly start the program"
+	echo "Note: you may wish to create a keyboard shortcut to /usr/bin/pistachio to quickly start the program"
 fi
 
